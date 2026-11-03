@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', 'Noto Sans Thai', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: 'Plus Jakarta Sans', 'Noto Sans Thai', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    background-color: #EDF2F7;
+    color: #0F172A;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    background-color: #EDF2F7;
+    color: #0F172A;
+    overflow-x: hidden;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Rich modern daylight atmospheric gradient & mesh */
+.bg-hero-mesh {
+  background-color: #F0F5FD;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.18) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+    radial-gradient(at 50% 50%, rgba(244, 114, 182, 0.08) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(14, 165, 233, 0.14) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(16, 185, 129, 0.12) 0px, transparent 50%);
+}
+
+.bg-dot-mesh {
+  background-image: radial-gradient(#94A3B8 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Subtle glow animations */
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.03); }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 3s ease-in-out infinite;
+}
+
+.bg-portal-mesh { background-color:#edf3fb; background-image:radial-gradient(circle at 15% 5%,rgba(59,130,246,.12),transparent 28%),radial-gradient(circle at 90% 15%,rgba(99,102,241,.1),transparent 24%); }
+.portal-card { background:rgba(255,255,255,.93);border:1px solid rgba(191,219,254,.72);border-radius:1.25rem;box-shadow:0 12px 32px rgba(30,64,175,.07); }
+.form-field { width:100%;margin-top:.4rem;padding:.75rem .9rem;border-radius:.75rem;border:1px solid #cbd5e1;background:#fff;color:#0f172a;font-size:.875rem;outline:none; }
+.form-field:focus { border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.1); }
+.field-label { display:block;color:#334155;font-size:.875rem;font-weight:700; }
+.primary-button { padding:.75rem 1rem;border-radius:.75rem;background:#2563eb;color:#fff;font-size:.8rem;font-weight:800;box-shadow:0 8px 18px rgba(37,99,235,.18); }
+.primary-button:hover { background:#1d4ed8; }
+.secondary-button { padding:.7rem 1rem;border-radius:.75rem;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:.75rem;font-weight:800; }
+.secondary-button:hover { background:#dbeafe; }
+.mini-button { padding:.45rem .7rem;border-radius:.6rem;font-size:.7rem;font-weight:800; }
