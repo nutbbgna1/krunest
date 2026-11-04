@@ -243,17 +243,19 @@ export function createApp(options = {}) {
     if (!Array.isArray(input) || input.length > 10) return null;
     const seen = new Set(); const out = [];
     for (const [index, item] of input.entries()) {
-      const type = item?.type === 'bank' ? 'bank' : item?.type === 'promptpay' ? 'promptpay' : null;
+      const type = ['bank', 'promptpay', 'qr'].includes(item?.type) ? item.type : null;
       const label = String(item?.label || '').trim().slice(0, 40);
       const number = String(item?.accountNumber || '').replace(/[\s-]/g, '');
       const id = String(item?.id || `account-${index + 1}`).trim().toLowerCase();
       if (!type || !label || !/^[a-z0-9-]{1,30}$/.test(id) || seen.has(id)) return null;
       if (type === 'promptpay' && (!/^(\d{10}|\d{13}|\d{15})$/.test(number) || number === PLACEHOLDER_PROMPTPAY)) return null;
       if (type === 'bank' && !/^\d{6,20}$/.test(number)) return null;
+      const qrImage = type === 'qr' ? String(item?.qrImage || '') : '';
+      if (type === 'qr' && (!/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(qrImage) || qrImage.length > 900_000)) return null;
       const bankName = String(item?.bankName || '').trim().slice(0, 40); const accountName = String(item?.accountName || '').trim().slice(0, 80);
       if (type === 'bank' && (!bankName || !accountName)) return null;
       seen.add(id);
-      out.push({ id, type, label, bankName, accountName, accountNumber: number, note: String(item?.note || '').trim().slice(0, 120), active: item?.active !== false });
+      out.push({ id, type, label, bankName, accountName, accountNumber: type === 'qr' ? '' : number, qrImage, note: String(item?.note || '').trim().slice(0, 120), active: item?.active !== false });
     }
     return out;
   };
@@ -422,7 +424,7 @@ export function createApp(options = {}) {
   app.get('/api/admin/payment-accounts', auth, admin, (_req, res) => res.json(getPaymentAccounts()));
   app.put('/api/admin/payment-accounts', auth, admin, csrf, (req, res) => {
     const accounts = sanitizeAccounts(req.body.accounts);
-    if (!accounts) return res.status(400).json({ error: 'ข้อมูลบัญชีไม่ถูกต้อง (PromptPay ต้องเป็นเบอร์ 10 หลักหรือเลขบัตร/ภาษี 13 หลัก ห้ามใช้เบอร์ตัวอย่าง, บัญชีธนาคารต้องมีชื่อธนาคาร ชื่อบัญชี และเลข 6–20 หลัก)' });
+    if (!accounts) return res.status(400).json({ error: 'ข้อมูลบัญชีไม่ถูกต้อง (PromptPay ต้องเป็นเบอร์ 10 หลักหรือเลขบัตร/ภาษี 13 หลัก ห้ามใช้เบอร์ตัวอย่าง, บัญชีธนาคารต้องมีชื่อธนาคาร ชื่อบัญชี และเลข 6–20 หลัก, QR ต้องเป็นรูป PNG/JPG ไม่เกิน 600KB)' });
     db.prepare("INSERT INTO settings (key,value) VALUES ('payment_accounts',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(accounts));
     audit(req.user.id, 'update_payment_accounts', 'settings', 'payment_accounts', { count: accounts.length, active: accounts.filter((a) => a.active).length });
     res.json(accounts);

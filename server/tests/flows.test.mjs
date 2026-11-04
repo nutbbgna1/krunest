@@ -215,6 +215,13 @@ test('payment accounts: admin manages them, sales reviews slips and approves', a
   assert.equal((await member.request(`/api/sales/orders/${order.data.id}/review`, { method: 'POST', body: { decision: 'approve' } })).response.status, 200);
   assert.equal(db.prepare("SELECT 1 FROM entitlements WHERE program_id='veloce-pos' AND user_id=(SELECT id FROM users WHERE email='payer@school.ac.th')").get() !== undefined, true);
 
+  const badQr = await administrator.request('/api/admin/payment-accounts', { method: 'PUT', body: { accounts: [{ type: 'qr', label: 'QR', qrImage: 'data:text/html;base64,PHNjcmlwdD4=' }] } });
+  assert.equal(badQr.response.status, 400, 'only png/jpeg images are accepted as QR');
+  const qr = await administrator.request('/api/admin/payment-accounts', { method: 'PUT', body: { accounts: [{ type: 'qr', label: 'QR ธนาคาร', qrImage: 'data:image/png;base64,iVBORw0KGgo=' }] } });
+  assert.equal(qr.response.status, 200);
+  const qrOrder = await customer.request('/api/orders', { method: 'POST', body: { targetType: 'program', targetId: 'pixelcraft-studio' } });
+  assert.equal(qrOrder.response.status, 201);
+  assert.equal(qrOrder.data.qrDataUrl, null); assert.equal(qrOrder.data.accounts[0].qrImage, 'data:image/png;base64,iVBORw0KGgo=');
   await administrator.request('/api/admin/payment-accounts', { method: 'PUT', body: { accounts: [] } });
   const none = await customer.request('/api/orders', { method: 'POST', body: { targetType: 'program', targetId: 'veloce-pos' } });
   assert.equal(none.response.status, 503, 'orders are blocked until an account is configured');
