@@ -6,10 +6,8 @@ import { MemberTier, ViewMode } from '../types';
 import { OrderTarget } from '../components/modals/QuickOrderModal';
 import { StoreStatusBar } from '../components/store/StoreStatusBar';
 import { HeroSection } from '../components/store/HeroSection';
-import { UnlockedQuickLaunch } from '../components/store/UnlockedQuickLaunch';
-import { CatalogSection } from '../components/store/CatalogSection';
-import { PackagesSection } from '../components/store/PackagesSection';
 import { HowToOrderSection } from '../components/store/HowToOrderSection';
+import { HtmlPluginCatalog } from '../components/store/HtmlPluginCatalog';
 
 interface StoreViewProps {
   memberTier: MemberTier;
@@ -35,23 +33,9 @@ export function StoreView({
       <StoreStatusBar
         memberTier={memberTier}
         unlockedCount={unlockedProgramIds.length}
-        onChangeView={onChangeView}
       />
       <HeroSection />
-      <UnlockedQuickLaunch unlockedProgramIds={unlockedProgramIds} onLaunch={onLaunch} />
-      <CatalogSection
-        unlockedProgramIds={unlockedProgramIds}
-        onInspect={onInspect}
-        onLaunch={onLaunch}
-        onOrder={onOrder}
-        onAddToCart={onAddToCart}
-      />
-      <PackagesSection
-        memberTier={memberTier}
-        unlockedProgramIds={unlockedProgramIds}
-        onLaunch={onLaunch}
-        onOrder={onOrder}
-      />
+      <HtmlPluginCatalog unlockedProgramIds={unlockedProgramIds} onOrder={onOrder} />
       <HowToOrderSection />
     </main>
   );

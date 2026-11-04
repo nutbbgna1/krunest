@@ -11,6 +11,15 @@ interface Props {
 
 type Mode = 'login' | 'register' | 'forgot';
 
+function GoogleLogo() {
+  return <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" aria-hidden="true">
+    <path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.07H12v3.92h5.38a4.6 4.6 0 0 1-2 3.02v2.54h3.24c1.9-1.75 2.98-4.33 2.98-7.41Z" />
+    <path fill="#34A853" d="M12 22c2.7 0 4.98-.9 6.63-2.43l-3.24-2.53c-.9.6-2.05.96-3.39.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.62A10 10 0 0 0 12 22Z" />
+    <path fill="#FBBC05" d="M6.39 13.87A6 6 0 0 1 6.07 12c0-.65.11-1.28.32-1.87V7.51H3.04A10 10 0 0 0 2 12c0 1.61.39 3.14 1.04 4.49l3.35-2.62Z" />
+    <path fill="#EA4335" d="M12 6c1.47 0 2.79.51 3.82 1.5l2.88-2.87A9.64 9.64 0 0 0 12 2a10 10 0 0 0-8.96 5.51l3.35 2.62C7.18 7.76 9.39 6 12 6Z" />
+  </svg>;
+}
+
 export function AuthModal({ open, onClose, onAuthenticated }: Props) {
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');
@@ -67,7 +76,23 @@ export function AuthModal({ open, onClose, onAuthenticated }: Props) {
         {error && <div className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs p-3">{error}</div>}
         {message && <div className="rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs p-3 flex gap-2"><MailCheck className="w-4 h-4 shrink-0" />{message}</div>}
         <button disabled={loading} className="w-full h-12 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-200">{mode==='login'?<LogIn className="w-4 h-4"/>:<UserPlus className="w-4 h-4"/>}{loading?'กำลังดำเนินการ...':mode==='login'?(takeover?'ย้ายการใช้งานมาเครื่องนี้':'เข้าสู่ระบบ'):mode==='register'?'สมัครสมาชิก':'ส่งวิธีตั้งรหัสผ่าน'}</button>
-        {mode==='login'&&<button type="button" disabled className="w-full h-11 rounded-xl border border-slate-200 text-slate-400 text-xs font-bold">Google Workspace — พร้อมเชื่อมต่อเมื่อใส่ OAuth Key</button>}
+        {mode==='login'&&<>
+          <div className="flex items-center gap-3 py-0.5" aria-hidden="true">
+            <span className="h-px flex-1 bg-slate-200" />
+            <span className="text-[11px] font-medium text-slate-400">หรือ</span>
+            <span className="h-px flex-1 bg-slate-200" />
+          </div>
+          <button
+            type="button"
+            onClick={()=>window.location.assign('/api/auth/google')}
+            className="group relative flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-md focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100 active:translate-y-0 active:shadow-sm"
+          >
+            <span className="absolute left-4 flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-100 transition-transform duration-200 group-hover:scale-105">
+              <GoogleLogo />
+            </span>
+            <span>เข้าสู่ระบบด้วย Google</span>
+          </button>
+        </>}
         <div className="flex justify-between text-xs font-semibold text-blue-700">
           <button type="button" onClick={()=>{setMode(mode==='register'?'login':'register');setError('');setMessage('')}}>{mode==='register'?'มีบัญชีแล้ว':'ยังไม่มีบัญชี? สมัครฟรี'}</button>
           <button type="button" onClick={()=>{setMode(mode==='forgot'?'login':'forgot');setError('');setMessage('')}}>{mode==='forgot'?'กลับไปเข้าสู่ระบบ':'ลืมรหัสผ่าน'}</button>

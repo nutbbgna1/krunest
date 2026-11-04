@@ -10,11 +10,12 @@ let base;
 let db;
 
 before(async () => {
-  const built = createApp({ dbFile: ':memory:', exposeTokens: true });
+  const built = createApp({ dbFile: ':memory:', exposeTokens: true, seedDemoPrograms: true });
   db = built.db;
   server = createServer(built.app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
+  db.prepare("INSERT INTO settings (key,value) VALUES ('payment_accounts',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify([{ id: 'pp', type: 'promptpay', label: 'PromptPay ร้าน', bankName: '', accountName: '', accountNumber: '0891234567', note: '', active: true }]));
 });
 
 after(async () => {
@@ -34,7 +35,7 @@ function client() {
       });
       const setCookie = response.headers.get('set-cookie');
       if (setCookie) cookie = setCookie.split(';')[0];
-      const data = await response.json();
+      const data = response.headers.get('content-type')?.includes('application/json') ? await response.json() : await response.text();
       if (data.csrfToken) csrf = data.csrfToken;
       return { response, data };
     },
@@ -54,7 +55,7 @@ test('phase 0: health and catalog use the database', async () => {
   assert.equal(catalog.data.programs.length, 6);
   assert.equal(catalog.data.plans.length, 4);
   const googleStub = await member.request('/api/auth/google');
-  assert.equal(googleStub.response.status, 501);
+  assert.equal(googleStub.response.status, 503);
 });
 
 test('phase 1: register, verify, login, profile and session protection', async () => {
@@ -115,6 +116,26 @@ test('phase 4: admin dashboard, users, logs and announcements', async () => {
   assert.equal(publicItems.data[0].title, 'แจ้งปรับปรุง');
   const audit = await administrator.request('/api/admin/audit');
   assert.ok(audit.data.some((item) => item.action === 'approve_order'));
+  const allUsers = await administrator.request('/api/admin/users');
+  const teacher = allUsers.data.find((item) => item.email === 'teacher@school.ac.th');
+  const promoted = await administrator.request(`/api/admin/users/${teacher.id}`, { method: 'PATCH', body: { role: 'staff' } });
+  assert.equal(promoted.response.status, 200);
+  const salesSummary = await member.request('/api/sales/summary');
+  assert.equal(salesSummary.response.status, 200);
+  assert.equal(salesSummary.data.approvedOrders, 1);
+  const deniedAdmin = await member.request('/api/admin/summary');
+  assert.equal(deniedAdmin.response.status, 403);
+  for (const path of ['/api/admin/users', '/api/admin/orders', '/api/admin/audit', '/api/admin/emails', '/api/admin/supabase', '/api/admin/plugins', '/api/admin/announcements']) {
+    const denied = await member.request(path);
+    assert.equal(denied.response.status, 403, `staff must not reach ${path}`);
+  }
+  const deniedRole = await member.request(`/api/admin/users/${teacher.id}`, { method: 'PATCH', body: { role: 'admin' } });
+  assert.equal(deniedRole.response.status, 403);
+  for (const path of ['/api/sales/summary', '/api/sales/orders', '/api/sales/customers']) {
+    assert.equal((await administrator.request(path)).response.status, 200, `admin must reach ${path}`);
+  }
+  const salesCustomers = await member.request('/api/sales/customers');
+  assert.equal(salesCustomers.data[0].email, 'teacher@school.ac.th');
 });
 
 test('phase 5: teams, invite links and email queue', async () => {
@@ -129,15 +150,31 @@ test('phase 5: teams, invite links and email queue', async () => {
 
 test('phase 6: plugins, 2FA setup and scheduled maintenance', async () => {
   const zip = new AdmZip();
-  zip.addFile('manifest.json', Buffer.from(JSON.stringify({ slug: 'school-report', name: 'รายงานโรงเรียน', version: '1.0.0' })));
-  zip.addFile('index.js', Buffer.from('export default {}'));
+  zip.addFile('manifest.json', Buffer.from(JSON.stringify({
+    slug: 'school-report', name: 'รายงานโรงเรียน', version: '1.0.0', type: 'html-standalone',
+    entry: 'app/index.html', manual: 'app/manual.pdf', description: 'ระบบทดสอบ', highlights: ['พร้อมใช้'], steps: ['เปิดโปรแกรม'],
+    program: { id: 'school-report', name: 'School Report', thaiName: 'รายงานโรงเรียน', price: 299 },
+  })));
+  zip.addFile('app/index.html', Buffer.from('<!doctype html><title>School Report</title><h1>พร้อมใช้</h1>'));
+  zip.addFile('app/manual.pdf', Buffer.from('%PDF-1.4 test manual'));
   const plugin = await administrator.request('/api/admin/plugins', { method: 'POST', body: { archive: `data:application/zip;base64,${zip.toBuffer().toString('base64')}` } });
   assert.equal(plugin.response.status, 201);
-  assert.equal(existsSync('data/plugins/school-report/index.js'), true);
+  assert.equal(existsSync('data/plugins/school-report/app/index.html'), true);
   const plugins = await administrator.request('/api/admin/plugins');
   assert.equal(plugins.data[0].slug, 'school-report');
   const toggled = await administrator.request(`/api/admin/plugins/${plugins.data[0].id}/toggle`, { method: 'POST', body: {} });
   assert.equal(toggled.data.status, 'active');
+  const publicPlugins = await member.request('/api/plugins');
+  assert.equal(publicPlugins.data[0].programId, 'school-report');
+  const demo = await member.request('/plugins/school-report/demo/?vsdemo=1');
+  assert.equal(demo.response.status, 200);
+  assert.match(demo.data, /พร้อมใช้/);
+  const denied = await member.request('/plugins/school-report/app/');
+  assert.equal(denied.response.status, 403);
+  const pluginTrial = await member.request('/api/me/trials/school-report', { method: 'POST', body: {} });
+  assert.equal(pluginTrial.response.status, 201);
+  const fullApp = await member.request('/plugins/school-report/app/');
+  assert.equal(fullApp.response.status, 200);
   const setup = await member.request('/api/me/2fa/setup', { method: 'POST', body: {} });
   assert.match(setup.data.otpauth, /^otpauth:\/\/totp/);
   const maintenance = runMaintenance(db, `/tmp/krunest-test-mail-${Date.now()}`);
@@ -145,4 +182,40 @@ test('phase 6: plugins, 2FA setup and scheduled maintenance', async () => {
   const removed = await administrator.request(`/api/admin/plugins/${plugins.data[0].id}`, { method: 'DELETE' });
   assert.equal(removed.response.status, 200);
   assert.equal(existsSync('data/plugins/school-report'), false);
+});
+
+test('payment accounts: admin manages them, sales reviews slips and approves', async () => {
+  const bad = await administrator.request('/api/admin/payment-accounts', { method: 'PUT', body: { accounts: [{ type: 'promptpay', label: 'x', accountNumber: '0812345678' }] } });
+  assert.equal(bad.response.status, 400, 'the old sample number is rejected');
+  assert.equal((await administrator.request('/api/admin/payment-accounts', { method: 'PUT', body: { accounts: [{ type: 'bank', label: 'KBank', accountNumber: '123' }] } })).response.status, 400);
+  const denied = await member.request('/api/admin/payment-accounts', { method: 'PUT', body: { accounts: [] } });
+  assert.equal(denied.response.status, 403, 'staff cannot change where money goes');
+  const saved = await administrator.request('/api/admin/payment-accounts', { method: 'PUT', body: { accounts: [
+    { type: 'promptpay', label: 'PromptPay', accountNumber: '089-123-4567' },
+    { type: 'bank', label: 'ธนาคารกสิกรไทย', bankName: 'กสิกรไทย', accountName: 'บจก. ครูเนสต์', accountNumber: '123-4-56789-0', active: true },
+    { type: 'bank', label: 'ซ่อนอยู่', bankName: 'ไทยพาณิชย์', accountName: 'x', accountNumber: '9999999999', active: false },
+  ] } });
+  assert.equal(saved.response.status, 200); assert.equal(saved.data[0].accountNumber, '0891234567');
+  const publicList = await member.request('/api/payment-accounts');
+  assert.equal(publicList.data.length, 2, 'inactive accounts are hidden from customers');
+
+  const customer = client();
+  await customer.request('/api/auth/register', { method: 'POST', body: { email: 'payer@school.ac.th', password: 'Payer@12345', name: 'Payer', organization: 'School' } });
+  const token = db.prepare("SELECT token FROM tokens WHERE type='verify' ORDER BY rowid DESC").get()?.token;
+  if (token) await customer.request('/api/auth/verify', { method: 'POST', body: { token } });
+  const login = await customer.request('/api/auth/login', { method: 'POST', body: { email: 'payer@school.ac.th', password: 'Payer@12345' } });
+  assert.equal(login.response.status, 200);
+  const order = await customer.request('/api/orders', { method: 'POST', body: { targetType: 'program', targetId: 'veloce-pos' } });
+  assert.equal(order.response.status, 201); assert.equal(order.data.accounts.length, 2);
+  const noSlip = await member.request(`/api/sales/orders/${order.data.id}/review`, { method: 'POST', body: { decision: 'approve' } });
+  assert.equal(noSlip.response.status, 400, 'no approval without a payment slip');
+  assert.equal((await customer.request(`/api/orders/${order.data.id}/slip`, { method: 'POST', body: { fileName: 's.png', mimeType: 'image/png', data: 'data:image/png;base64,iVBORw0KGgo=' } })).response.status, 201);
+  const slip = await member.request(`/api/sales/orders/${order.data.id}/slip`);
+  assert.equal(slip.response.status, 200); assert.equal(slip.data.mime_type, 'image/png');
+  assert.equal((await member.request(`/api/sales/orders/${order.data.id}/review`, { method: 'POST', body: { decision: 'approve' } })).response.status, 200);
+  assert.equal(db.prepare("SELECT 1 FROM entitlements WHERE program_id='veloce-pos' AND user_id=(SELECT id FROM users WHERE email='payer@school.ac.th')").get() !== undefined, true);
+
+  await administrator.request('/api/admin/payment-accounts', { method: 'PUT', body: { accounts: [] } });
+  const none = await customer.request('/api/orders', { method: 'POST', body: { targetType: 'program', targetId: 'veloce-pos' } });
+  assert.equal(none.response.status, 503, 'orders are blocked until an account is configured');
 });

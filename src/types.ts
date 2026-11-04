@@ -1,5 +1,5 @@
 // ชนิดข้อมูลที่ใช้ร่วมกันทั้งแอป
-export type ViewMode = 'store' | 'workspace' | 'member' | 'admin';
+export type ViewMode = 'store' | 'workspace' | 'member' | 'sales' | 'admin';
 export type MemberTier = 'free' | 'go' | 'pro' | 'max';
 export type TierFilter = 'all' | MemberTier | 'unlocked';
 
@@ -28,4 +28,42 @@ export interface MemberSession {
   csrfToken: string;
   entitlements: Entitlement[];
   subscription?: { plan_id: MemberTier; plan_name: string; ends_at: string | null } | null;
+}
+
+export interface HtmlPlugin {
+  slug: string;
+  name: string;
+  version: string;
+  type: string;
+  description: string;
+  category: string;
+  badge: string;
+  screenshots: string[];
+  highlights: string[];
+  steps: string[];
+  programId: string;
+  program: { id: string; name: string; thaiName: string; price: number } | null;
+  demoUrl: string | null;
+  appUrl: string | null;
+  manualUrl: string | null;
+  categoryId: string;
+  priceTiers: PriceTier[];
+  delivery: 'online' | 'offline' | 'both';
+  downloadUrl: string | null;
+  offlineFileName: string | null;
+  offlineSize: number | null;
+}
+
+export interface PriceTier {
+  id: string;
+  name: string;
+  price: number;
+  description: string;
+  offline: boolean;
+  durationDays: number | null;
+}
+
+export interface PluginCategory {
+  id: string;
+  label: string;
 }

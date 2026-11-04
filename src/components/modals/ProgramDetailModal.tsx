@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Check, ArrowRight, Layers, Monitor, Cloud } from 'lucide-react';
+import { X, Check, ArrowRight, Clock3, Monitor, Cloud } from 'lucide-react';
 import { SoftwareProgram } from '../../data/programs';
 import { LicensePurchaseType } from '../../utils/pricing';
 import { ProgramVisualDiagram } from '../common/ProgramVisualDiagram';
@@ -185,17 +185,10 @@ export const ProgramDetailModal: React.FC<ProgramDetailModalProps> = ({
                 <ArrowRight className="w-4 h-4" />
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onLaunchCloudApp(program.id);
-                }}
-                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2"
-              >
-                <Layers className="w-4 h-4 text-blue-600" />
-                <span>ทดลองใช้งานบนเว็บทันที</span>
-              </button>
+              <div className="w-full py-2.5 px-4 bg-amber-50 text-amber-800 font-semibold text-xs rounded-xl border border-amber-200 flex items-center justify-center gap-2">
+                <Clock3 className="w-4 h-4" />
+                <span>ระบบทดลองใช้งานออนไลน์กำลังเตรียมเปิดให้บริการ</span>
+              </div>
             </div>
           </div>
         </div>

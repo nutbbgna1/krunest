@@ -1,0 +1,9 @@
+{
+  "domain": "krunest.net",
+  "username": "u356132807",
+  "type": "nodejs",
+  "nodeVersion": 22,
+  "entryFile": "server/index.mjs",
+  "buildScript": "build",
+  "outputDirectory": "."
+}

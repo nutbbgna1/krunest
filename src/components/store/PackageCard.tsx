@@ -1,7 +1,7 @@
 // การ์ดแพ็กเกจสมาชิก 1 ใบ (ข้อมูลอยู่ที่ data/packages.ts)
 import React from 'react';
 import { motion } from 'motion/react';
-import { Play, Check, QrCode } from 'lucide-react';
+import { Clock3, Check, QrCode } from 'lucide-react';
 import { KruPackage } from '../../data/packages';
 import { OrderTarget } from '../modals/QuickOrderModal';
 
@@ -70,17 +70,11 @@ export function PackageCard({ pkg, isCurrentTier, allIncludedUnlocked, onLaunch,
         {allIncludedUnlocked ? (
           <button
             type="button"
-            onClick={() =>
-              onLaunch(pkg.unlockProgramIds[0])
-            }
-            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1.5 cursor-pointer"
+            disabled
+            className="w-full py-2.5 px-4 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-not-allowed"
           >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            <span>
-              {isCurrentTier
-                ? 'แพ็กเกจปัจจุบัน · เปิดใช้บนเว็บ'
-                : 'เปิดใช้งานระบบในแพ็กเกจนี้'}
-            </span>
+            <Clock3 className="w-3.5 h-3.5" />
+            <span>{isCurrentTier ? 'แพ็กเกจปัจจุบัน · ระบบกำลังเตรียมเปิด' : 'ระบบกำลังเตรียมเปิด'}</span>
           </button>
         ) : (
           <button
@@ -90,7 +84,7 @@ export function PackageCard({ pkg, isCurrentTier, allIncludedUnlocked, onLaunch,
                 type: 'package',
                 id: pkg.id,
                 title: `${pkg.name} (${pkg.techScope})`,
-                subtitle: `ปลดล็อก ${pkg.unlockProgramIds.length} ระบบงานพร้อมปุ่มเข้าใช้งานบนเว็บทันที`,
+                subtitle: `รับสิทธิ์ ${pkg.unlockProgramIds.length} ระบบงานและรับแจ้งเมื่อระบบพร้อมใช้งาน`,
                 price: pkg.price,
                 unlockProgramIds: pkg.unlockProgramIds,
                 badgeLabel: 'แพ็กเกจสมาชิกตลอดชีพ',

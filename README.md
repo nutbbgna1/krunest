@@ -1,4 +1,4 @@
-# Krunest / LuminaSys Hub
+# Krunest
 
 หน้าร้านระบบงานพร้อมศูนย์สมาชิกและศูนย์ผู้ดูแล ใช้ React + Express + SQLite และทำงานในเครื่องได้โดยไม่ต้องติดตั้งฐานข้อมูลเพิ่ม
 
@@ -48,3 +48,13 @@
 | API / ความปลอดภัย / คำสั่งซื้อ | `server/app.mjs` |
 | โครงสร้างฐานข้อมูล | `server/db.mjs` |
 | ชุดทดสอบทุกเฟส | `server/tests/flows.test.mjs` |
+
+
+## Supabase เป็นที่เก็บข้อมูลหลัก
+
+- เขียนข้อมูลทุกครั้งลง Supabase อัตโนมัติ (`server/supabase-mirror.mjs`) ยกเว้น sessions / tokens / login_attempts
+- เปิดเซิร์ฟเวอร์: ถ้าฐานข้อมูลในเครื่องว่าง (มีแค่แอดมินที่ seed) จะกู้ข้อมูลและไฟล์ปลั๊กอินจาก Supabase ไม่เช่นนั้นจะส่งข้อมูลในเครื่องขึ้นไป
+- ถ้า Supabase ใช้ไม่ได้ ระบบยังทำงานต่อด้วยข้อมูลในเครื่องและลองส่งใหม่ (ดูสถานะที่ผู้ดูแล > สถานะระบบ)
+- ต้องใช้ **Secret key** (`SUPABASE_SECRET_KEY` หรือ `SUPABASE_API_KEY`) และรัน migration ใน `supabase/migrations/` ก่อน
+- ปิดการสำรองอัตโนมัติ: `KRUNEST_SUPABASE_MIRROR=off`
+- ไฟล์ติดตั้งออฟไลน์เก็บใน bucket private `krunest-files` (สร้างให้อัตโนมัติ) ดาวน์โหลดผ่าน signed URL อายุ 5 นาที หลังตรวจสิทธิ์

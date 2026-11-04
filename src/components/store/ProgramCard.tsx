@@ -1,7 +1,7 @@
 // การ์ดโปรแกรม 1 ใบในคลังระบบงาน (สี/ราคา/ป้าย มาจาก data/programMeta.ts)
 import React from 'react';
 import { motion } from 'motion/react';
-import { ShoppingBag, Play, Eye, Check, QrCode, Lock, Unlock } from 'lucide-react';
+import { ShoppingBag, Clock3, Eye, Check, QrCode, Lock, Unlock } from 'lucide-react';
 import { SoftwareProgram } from '../../data/programs';
 import { PROGRAM_META } from '../../data/programMeta';
 import { CartItem } from '../../utils/pricing';
@@ -144,12 +144,12 @@ export function ProgramCard({ program, isUnlocked, onInspect, onLaunch, onOrder,
           <div className="space-y-2">
             <button
               type="button"
-              onClick={() => onLaunch(program.id)}
-              aria-label={`เข้าใช้งาน ${program.name} บนเว็บทันที`}
-              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs sm:text-sm font-bold shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-101"
+              disabled
+              aria-label={`${program.name} กำลังเตรียมเปิดให้ใช้งาน`}
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-100 text-slate-500 text-xs sm:text-sm font-bold border border-slate-200 flex items-center justify-center gap-2 cursor-not-allowed"
             >
-              <Play className="w-4 h-4 fill-current" />
-              <span>เข้าใช้งานบนเว็บทันที</span>
+              <Clock3 className="w-4 h-4" />
+              <span>กำลังเตรียมเปิดให้ใช้งาน</span>
             </button>
           </div>
         ) : (
@@ -161,7 +161,7 @@ export function ProgramCard({ program, isUnlocked, onInspect, onLaunch, onOrder,
                   type: 'single_program',
                   id: program.id,
                   title: `${program.name} (${program.thaiName})`,
-                  subtitle: `ซื้อแยกเฉพาะระบบ (${meta.techBadge}) พร้อมเปิดปุ่มใช้งานบนเว็บทันที`,
+                  subtitle: `ซื้อแยกเฉพาะระบบ (${meta.techBadge}) และรับแจ้งเมื่อระบบพร้อมใช้งาน`,
                   price: meta.singleBuyPrice,
                   unlockProgramIds: [program.id],
                   badgeLabel: 'ซื้อแยกรายระบบ · ตลอดชีพ',

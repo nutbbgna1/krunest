@@ -1,7 +1,6 @@
 // แถบเมนูด้านบน (โลโก้ / ลิงก์เมนู / ปุ่มตะกร้า)
 import React from 'react';
-import { ShoppingBag, Play, LogIn, UserRound, ShieldCheck, LogOut } from 'lucide-react';
-import { SOFTWARE_PROGRAMS } from '../../data/programs';
+import { ShoppingBag, LogIn, UserRound, ShieldCheck, LogOut, BadgeDollarSign } from 'lucide-react';
 import { AuthUser, ViewMode } from '../../types';
 
 interface HeaderProps {
@@ -26,19 +25,15 @@ export function Header({ viewMode, unlockedCount, cartCount, onChangeView, onOpe
           onChangeView('store');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
-        className="flex items-center gap-3 text-left shrink-0 group"
+        className="flex items-center text-left shrink-0 group"
       >
-        <div className="w-10 h-10 rounded-xl bg-white text-blue-700 font-extrabold text-base flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
-          SYS
-        </div>
-        <div className="flex flex-col">
-          <span className="font-extrabold text-base tracking-tight text-white leading-none">
-            LuminaSys Hub
-          </span>
-          <span className="text-[11px] text-blue-100 font-medium mt-0.5">
-            คลังระบบงานและโปรแกรมสำเร็จรูปออนไลน์
-          </span>
-        </div>
+        <span className="flex h-12 items-center rounded-xl bg-white px-2.5 py-1.5 shadow-md ring-1 ring-white/60 transition-transform group-hover:scale-[1.02]">
+          <img
+            src="/brand/krunest-logo-v1.png"
+            alt="Krunest"
+            className="h-9 w-auto max-w-[150px] object-contain sm:max-w-[175px]"
+          />
+        </span>
       </a>
 
       {/* Zone 2: Inline Navigation Links */}
@@ -51,14 +46,7 @@ export function Header({ viewMode, unlockedCount, cartCount, onChangeView, onOpe
           onClick={() => onChangeView('store')}
           className="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/10 transition-colors whitespace-nowrap shrink-0"
         >
-          คลังระบบงาน ({SOFTWARE_PROGRAMS.length})
-        </a>
-        <a
-          href="#packages"
-          onClick={() => onChangeView('store')}
-          className="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/10 transition-colors whitespace-nowrap shrink-0"
-        >
-          แพ็กเกจสมาชิกตลอดชีพ
+          คลังระบบงาน
         </a>
         <a
           href="#how-to-order"
@@ -67,29 +55,14 @@ export function Header({ viewMode, unlockedCount, cartCount, onChangeView, onOpe
         >
           ขั้นตอนการสั่งซื้อ
         </a>
-        <a
-          href="#workspace"
-          onClick={(e) => {
-            e.preventDefault();
-            onChangeView('workspace');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          className={`px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
-            viewMode === 'workspace'
-              ? 'bg-white text-blue-800 font-bold shadow-xs'
-              : 'hover:text-white hover:bg-white/10'
-          }`}
-        >
-          <Play className="w-3 h-3 fill-current" />
-          <span>พื้นที่ใช้งานบนเว็บ ({unlockedCount})</span>
-        </a>
       </nav>
 
       {/* Zone 3: Primary Action CTA */}
       <div className="flex items-center gap-2 shrink-0">
         {user ? <>
           <button type="button" onClick={()=>onChangeView('member')} className={`hidden sm:flex px-3 py-2 rounded-xl text-xs font-bold items-center gap-2 ${viewMode==='member'?'bg-white text-blue-800':'bg-white/10 hover:bg-white/20'}`}><UserRound className="w-4 h-4"/><span className="max-w-28 truncate">{user.name}</span></button>
-          {(user.role==='admin'||user.role==='staff')&&<button type="button" onClick={()=>onChangeView('admin')} className={`p-2.5 rounded-xl ${viewMode==='admin'?'bg-amber-400 text-slate-900':'bg-white/10 hover:bg-white/20'}`} aria-label="ผู้ดูแลระบบ"><ShieldCheck className="w-4 h-4"/></button>}
+          {(user.role==='admin'||user.role==='staff')&&<button type="button" onClick={()=>onChangeView('sales')} className={`p-2.5 rounded-xl ${viewMode==='sales'?'bg-cyan-300 text-slate-900':'bg-white/10 hover:bg-white/20'}`} aria-label="ฝ่ายขาย"><BadgeDollarSign className="w-4 h-4"/></button>}
+          {user.role==='admin'&&<button type="button" onClick={()=>onChangeView('admin')} className={`p-2.5 rounded-xl ${viewMode==='admin'?'bg-amber-400 text-slate-900':'bg-white/10 hover:bg-white/20'}`} aria-label="ผู้ดูแลระบบ"><ShieldCheck className="w-4 h-4"/></button>}
           <button type="button" onClick={onLogout} className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20" aria-label="ออกจากระบบ"><LogOut className="w-4 h-4"/></button>
         </>:<button type="button" onClick={onOpenAuth} className="px-4 py-2 text-xs font-bold rounded-xl bg-white/10 hover:bg-white/20 inline-flex items-center gap-2"><LogIn className="w-4 h-4"/>เข้าสู่ระบบ</button>}
         <button

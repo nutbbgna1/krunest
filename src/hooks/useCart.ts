@@ -4,20 +4,8 @@ import { SoftwareProgram } from '../data/programs';
 import { PROGRAM_META } from '../data/programMeta';
 import { CartItem } from '../utils/pricing';
 
-// รายการเริ่มต้นในตะกร้า (ตัวอย่าง)
-const INITIAL_CART: CartItem[] = [
-  {
-    programId: 'flowsync-erp',
-    programName: 'FlowSync ERP & Stock',
-    thaiName: 'ระบบจัดการคลังสินค้าและตัดสต็อกอัตโนมัติ',
-    licenseType: 'monthly_cloud',
-    unitPrice: 499,
-    quantity: 1,
-  },
-];
-
 export function useCart() {
-  const [cartItems, setCartItems] = useState<CartItem[]>(INITIAL_CART);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
   const addToCart = (
     program: SoftwareProgram,

@@ -17,14 +17,15 @@ import { CartDrawer } from './components/modals/CartDrawer';
 import { AuthModal } from './components/account/AuthModal';
 import { MemberCenter } from './views/MemberCenter';
 import { AdminCenter } from './views/AdminCenter';
+import { SalesCenter } from './views/SalesCenter';
 
 export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('store');
   const [session, setSession] = useState<MemberSession | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
 
-  // ระบบที่ปลดล็อกแล้ว (เริ่มต้นด้วยระบบฟรี)
-  const [unlockedProgramIds, setUnlockedProgramIds] = useState<string[]>(['docuflow-tax']);
+  // ระบบจริงที่ผู้ใช้มีสิทธิ์ (ไม่มีการเติมระบบตัวอย่างอัตโนมัติ)
+  const [unlockedProgramIds, setUnlockedProgramIds] = useState<string[]>([]);
   const [currentMemberTier, setCurrentMemberTier] = useState<MemberTier>('free');
 
   // Modal ที่เปิดอยู่
@@ -46,13 +47,27 @@ export default function App() {
       setSession(data);
       setUnlockedProgramIds(data.entitlements.map((item) => item.program_id));
       if (data.subscription?.plan_id) setCurrentMemberTier(data.subscription.plan_id);
-    } catch { setSession(null); setUnlockedProgramIds(['docuflow-tax']); setCurrentMemberTier('free'); }
+    } catch { setSession(null); setUnlockedProgramIds([]); setCurrentMemberTier('free'); }
   };
   useEffect(() => { refreshSession(); }, []);
+  useEffect(() => {
+    if (!window.location.hash.includes('access_token=')) return;
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const accessToken = params.get('access_token');
+    if (!accessToken) return;
+    window.history.replaceState({}, document.title, '/');
+    api<{ user: AuthUser; csrfToken: string }>('/auth/google/session', { method: 'POST', body: { accessToken } })
+      .then((result) => {
+        setCsrfToken(result.csrfToken);
+        setSession((current) => current ? { ...current, user: result.user, csrfToken: result.csrfToken } : { user: result.user, csrfToken: result.csrfToken, entitlements: [], subscription: null });
+        return refreshSession();
+      })
+      .catch(() => setAuthOpen(true));
+  }, []);
 
   const logout = async () => {
     try { await api('/auth/logout', { method: 'POST', body: {} }); } catch { /* clear local state even if session expired */ }
-    setCsrfToken(''); setSession(null); setViewMode('store'); setUnlockedProgramIds(['docuflow-tax']);
+    setCsrfToken(''); setSession(null); setViewMode('store'); setUnlockedProgramIds([]);
   };
 
   const handleUnlockPrograms = (programIds: string[], packageId?: string) => {
@@ -94,7 +109,7 @@ export default function App() {
         onLogout={logout}
       />
 
-      {viewMode === 'admin' && session && ['admin','staff'].includes(session.user.role) ? <AdminCenter /> : viewMode === 'member' && session ? <MemberCenter session={session} onRefresh={refreshSession} /> : viewMode === 'member' && !session ? <main className="flex-1 grid place-items-center p-8 bg-portal-mesh"><div className="portal-card max-w-md p-8 text-center"><h1 className="text-2xl font-black">เข้าสู่ระบบเพื่อเปิดศูนย์สมาชิก</h1><p className="text-sm text-slate-500 mt-2 mb-5">จัดการสิทธิ์ คำสั่งซื้อ ทีม และความปลอดภัยของบัญชี</p><button onClick={()=>setAuthOpen(true)} className="primary-button">เข้าสู่ระบบ / สมัครสมาชิก</button></div></main> : viewMode === 'workspace' ? (
+      {viewMode === 'admin' && session?.user.role === 'admin' ? <AdminCenter /> : viewMode === 'sales' && session && ['admin','staff'].includes(session.user.role) ? <SalesCenter /> : viewMode === 'member' && session ? <MemberCenter session={session} onRefresh={refreshSession} /> : viewMode === 'member' && !session ? <main className="flex-1 grid place-items-center p-8 bg-portal-mesh"><div className="portal-card max-w-md p-8 text-center"><h1 className="text-2xl font-black">เข้าสู่ระบบเพื่อเปิดศูนย์สมาชิก</h1><p className="text-sm text-slate-500 mt-2 mb-5">จัดการสิทธิ์ คำสั่งซื้อ ทีม และความปลอดภัยของบัญชี</p><button onClick={()=>setAuthOpen(true)} className="primary-button">เข้าสู่ระบบ / สมัครสมาชิก</button></div></main> : viewMode === 'workspace' ? (
         <main className="flex-1">
           <CloudWorkspaceView
             activeAppId={activeCloudAppId}
@@ -154,11 +169,7 @@ export default function App() {
         onCompleteOrderAndOpenWorkspace={(purchasedIds) => {
           handleUnlockPrograms(purchasedIds);
           setIsCartOpen(false);
-          if (purchasedIds.length > 0) {
-            handleLaunchCloudApp(purchasedIds[0]);
-          } else {
-            setViewMode('workspace');
-          }
+          setViewMode(session ? 'member' : 'store');
         }}
       />
     </div>

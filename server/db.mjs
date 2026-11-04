@@ -1,9 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import crypto from 'node:crypto';
 
-const PROGRAMS = [
+const DEMO_PROGRAMS = [
   ['docuflow-tax', 'DocuFlow Tax', 'ระบบเอกสารและภาษี', 0],
   ['flowsync-erp', 'FlowSync ERP', 'ระบบบริหารงานและบัญชี', 499],
   ['pulsecrm-chat', 'PulseCRM Chat', 'ระบบลูกค้าสัมพันธ์', 590],
@@ -32,12 +32,28 @@ export function verifyPassword(password, stored) {
   return actual.length === expectedBuffer.length && crypto.timingSafeEqual(actual, expectedBuffer);
 }
 
-export function openDatabase(file = process.env.KRUNEST_DB || './data/krunest.sqlite') {
+function databasePath(file) {
+  if (file) return file;
+  if (process.env.KRUNEST_DB) return process.env.KRUNEST_DB;
+  if (process.env.NODE_ENV === 'production' && process.env.HOME) {
+    const persistent = join(process.env.HOME, 'krunest-data', 'krunest.sqlite');
+    const legacy = './data/krunest.sqlite';
+    if (!existsSync(persistent) && existsSync(legacy)) {
+      mkdirSync(dirname(persistent), { recursive: true });
+      copyFileSync(legacy, persistent);
+    }
+    return persistent;
+  }
+  return './data/krunest.sqlite';
+}
+
+export function openDatabase(file, options = {}) {
+  file = databasePath(file);
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
   migrate(db);
-  seed(db);
+  seed(db, options);
   return db;
 }
 
@@ -129,9 +145,13 @@ function migrate(db) {
   `);
 }
 
-function seed(db) {
+function seed(db, { seedDemoPrograms = false } = {}) {
   const addProgram = db.prepare('INSERT INTO programs (id,name,thai_name,price) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,thai_name=excluded.thai_name,price=excluded.price');
-  PROGRAMS.forEach((row) => addProgram.run(...row));
+  if (seedDemoPrograms) DEMO_PROGRAMS.forEach((row) => addProgram.run(...row));
+  else {
+    const disableDemo = db.prepare('UPDATE programs SET active=0 WHERE id=?');
+    DEMO_PROGRAMS.forEach(([id]) => disableDemo.run(id));
+  }
   const addPlan = db.prepare('INSERT INTO plans (id,name,monthly_price,yearly_price,program_limit) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,monthly_price=excluded.monthly_price,yearly_price=excluded.yearly_price,program_limit=excluded.program_limit');
   PLANS.forEach((row) => addPlan.run(...row));
   const adminEmail = (process.env.KRUNEST_ADMIN_EMAIL || 'me.patiphan1@gmail.com').toLowerCase();
@@ -139,7 +159,7 @@ function seed(db) {
   if (!admin) {
     const result = db.prepare(`INSERT INTO users (email,password_hash,name,organization,role,email_verified)
       VALUES (?,?,?,?,?,1)`).run(adminEmail, hashPassword(process.env.KRUNEST_ADMIN_PASSWORD || 'Admin@12345'), 'ผู้ดูแลระบบ', 'Krunest', 'admin');
-    db.prepare(`INSERT INTO entitlements (user_id,program_id,source) VALUES (?,?,?)`).run(result.lastInsertRowid, 'docuflow-tax', 'free');
+    if (seedDemoPrograms) db.prepare(`INSERT INTO entitlements (user_id,program_id,source) VALUES (?,?,?)`).run(result.lastInsertRowid, 'docuflow-tax', 'free');
   } else {
     db.prepare("UPDATE users SET role='admin', email_verified=1 WHERE id=?").run(admin.id);
   }

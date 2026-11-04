@@ -10,7 +10,7 @@ export function HowToOrderSection() {
           HOW TO ORDER & USE · ขั้นตอนการสั่งซื้อและใช้งาน
         </div>
         <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
-          สั่งซื้อง่ายใน 4 ขั้นตอน พร้อมปุ่มเข้าใช้งานบนเว็บทันที
+          ขั้นตอนการรับสิทธิ์เมื่อโปรแกรมเปิดให้บริการ
         </h2>
       </div>
 

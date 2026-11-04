@@ -11,11 +11,14 @@ export function Footer({ onChangeView }: FooterProps) {
     <footer className="bg-slate-900 text-slate-300 border-t border-slate-800 py-10 px-6 lg:px-10">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-blue-600 text-white font-extrabold text-sm flex items-center justify-center shadow-md">
-            SYS
+          <div className="flex h-12 items-center rounded-xl bg-white px-2.5 py-1.5 shadow-md">
+            <img
+              src="/brand/krunest-logo-v1.png"
+              alt="Krunest"
+              className="h-9 w-auto max-w-[155px] object-contain"
+            />
           </div>
           <div>
-            <div className="font-extrabold text-white text-sm">LuminaSys Hub</div>
             <div className="text-xs text-slate-400">
               คลังระบบงานสำเร็จรูปและเว็บแอปพลิเคชันออนไลน์
             </div>
@@ -34,26 +37,11 @@ export function Footer({ onChangeView }: FooterProps) {
             หน้าร้านคลังระบบ
           </button>
           <span>·</span>
-          <button
-            type="button"
-            onClick={() => {
-              onChangeView('workspace');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            className="hover:text-white transition-colors cursor-pointer"
-          >
-            เข้าหน้าเว็บแอปออนไลน์
-          </button>
-          <span>·</span>
           <button type="button" onClick={() => onChangeView('member')} className="hover:text-white transition-colors">ศูนย์สมาชิก</button>
-          <span>·</span>
-          <a href="#packages" className="hover:text-white transition-colors">
-            แพ็กเกจสมาชิกตลอดชีพ
-          </a>
         </div>
 
         <div className="text-xs text-slate-500">
-          © 2026 LuminaSys Hub. พร้อมใช้งานบนเว็บได้ทันที
+          © 2026 Krunest. กำลังทยอยเปิดให้บริการโปรแกรมออนไลน์
         </div>
       </div>
     </footer>
