@@ -47,6 +47,10 @@ export interface HtmlPlugin {
   appUrl: string | null;
   manualUrl: string | null;
   categoryId: string;
+  tech: PluginTech;
+  access: PluginAccess;
+  installedAt: string | null;
+  popularity: number;
   priceTiers: PriceTier[];
   delivery: 'online' | 'offline' | 'both';
   downloadUrl: string | null;
@@ -67,3 +71,9 @@ export interface PluginCategory {
   id: string;
   label: string;
 }
+
+export type PluginTech = 'html' | 'gas' | 'php' | 'excel' | 'other';
+export type PluginAccess = 'free' | 'go' | 'pro' | 'max' | 'paid';
+
+export const TECH_LABELS: Record<PluginTech, string> = { html: 'HTML Standalone', gas: 'Google Apps Script', php: 'PHP + MySQL', excel: 'Excel / Google Sheets', other: 'อื่น ๆ' };
+export const ACCESS_LABELS: Record<PluginAccess, string> = { free: 'ฟรีสำหรับสมาชิกทุกคน', go: 'สมาชิกแบบ Go', pro: 'สมาชิกแบบ Pro', max: 'สมาชิกแบบ Max', paid: 'ชำระเงินแยกต่างหาก' };

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Tags, Trash2, Upload } from 'lucide-react';
 import { api } from '../../lib/api';
-import { PluginCategory, PriceTier } from '../../types';
+import { ACCESS_LABELS, PluginAccess, PluginCategory, PluginTech, PriceTier, TECH_LABELS } from '../../types';
 
 type Act = (task: () => Promise<unknown>, ok: string) => void;
 
@@ -28,6 +28,13 @@ export function TierEditor({ tiers, onChange, canOffline }: { tiers: PriceTier[]
 
 const withIds = (tiers: PriceTier[]) => tiers.map((t, i) => ({ ...t, id: /^[a-z0-9-]{1,20}$/.test(t.id) ? t.id : slug(t.name).slice(0, 20) || `tier-${i + 1}` }));
 
+export function TechAccessSelects({ tech, access, onTech, onAccess }: { tech: string; access: string; onTech: (v: PluginTech | '') => void; onAccess: (v: PluginAccess | '') => void }) {
+  return <>
+    <select value={tech} onChange={(e) => onTech(e.target.value as PluginTech | '')} className="rounded-lg border px-2 py-1.5 text-xs" aria-label="ประเภทเทคโนโลยี"><option value="">เทคโนโลยี: อัตโนมัติ</option>{(Object.keys(TECH_LABELS) as PluginTech[]).map((t) => <option key={t} value={t}>{TECH_LABELS[t]}</option>)}</select>
+    <select value={access} onChange={(e) => onAccess(e.target.value as PluginAccess | '')} className="rounded-lg border px-2 py-1.5 text-xs" aria-label="ประเภทสิทธิ์"><option value="">สิทธิ์: อัตโนมัติจากราคา</option>{(Object.keys(ACCESS_LABELS) as PluginAccess[]).map((a) => <option key={a} value={a}>{ACCESS_LABELS[a]}</option>)}</select>
+  </>;
+}
+
 export function CategorySelect({ value, categories, onChange }: { value: string; categories: PluginCategory[]; onChange: (id: string) => void }) {
   return <select value={value} onChange={(e) => onChange(e.target.value)} className="rounded-lg border px-2 py-1.5 text-xs" aria-label="หมวดหมู่">
     <option value="">ไม่ระบุหมวดหมู่</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
@@ -39,30 +46,34 @@ export function PluginMeta({ plugin, categories, busy, act }: { plugin: any; cat
   const manifest = plugin.manifest;
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState<string>(manifest?.category || '');
+  const [tech, setTech] = useState<string>(manifest?.tech || '');
+  const [access, setAccess] = useState<string>(manifest?.access || '');
   const [tiers, setTiers] = useState<PriceTier[]>(manifest?.priceTiers?.length ? manifest.priceTiers : [{ ...blankTier(0), id: 'standard', name: 'มาตรฐาน', price: Number(manifest?.program?.price || 0), offline: Boolean(manifest?.offline) }]);
   if (!manifest?.program) return null;
   const summary = (manifest.priceTiers?.length ? manifest.priceTiers : tiers).map((t: PriceTier) => `${t.name} ฿${t.price.toLocaleString()}`).join(' · ');
   return <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
     <div className="flex items-center justify-between gap-2"><span className="font-bold text-slate-700">หมวด: {categories.find((c) => c.id === manifest.category)?.label || manifest.category || 'ไม่ระบุ'}</span><button onClick={() => setOpen(!open)} className="font-bold text-blue-700">{open ? 'ปิด' : 'แก้ราคา / หมวดหมู่'}</button></div>
     <div className="mt-1 text-slate-500">{summary}</div>
-    {open && <div className="mt-3 space-y-3"><CategorySelect value={category} categories={categories} onChange={setCategory}/><TierEditor tiers={tiers} onChange={setTiers} canOffline={Boolean(manifest.offline)}/>
-      <button disabled={busy} onClick={() => act(() => api(`/admin/plugins/${plugin.id}/meta`, { method: 'PATCH', body: { category, priceTiers: withIds(tiers) } }), 'บันทึกราคาและหมวดหมู่แล้ว')} className="primary-button w-full py-2 text-xs">บันทึก</button></div>}
+    {open && <div className="mt-3 space-y-3"><div className="flex flex-wrap gap-2"><CategorySelect value={category} categories={categories} onChange={setCategory}/><TechAccessSelects tech={tech} access={access} onTech={setTech} onAccess={setAccess}/></div><TierEditor tiers={tiers} onChange={setTiers} canOffline={Boolean(manifest.offline)}/>
+      <button disabled={busy} onClick={() => act(() => api(`/admin/plugins/${plugin.id}/meta`, { method: 'PATCH', body: { category, ...(tech ? { tech } : {}), ...(access ? { access } : {}), priceTiers: withIds(tiers) } }), 'บันทึกราคาและหมวดหมู่แล้ว')} className="primary-button w-full py-2 text-xs">บันทึก</button></div>}
   </div>;
 }
 
 // Install form: ZIP + optional category and price tiers set at upload time.
 export function UploadForm({ categories, busy, act, onError }: { categories: PluginCategory[]; busy: boolean; act: Act; onError: (message: string) => void }) {
   const [category, setCategory] = useState('');
+  const [tech, setTech] = useState('');
+  const [access, setAccess] = useState('');
   const [custom, setCustom] = useState(false);
   const [tiers, setTiers] = useState<PriceTier[]>([{ ...blankTier(0), id: 'standard', name: 'มาตรฐาน' }]);
   return <form onSubmit={async (e) => {
     e.preventDefault(); const form = e.currentTarget; const file = new FormData(form).get('archive') as File;
     if (!file?.size) { onError('กรุณาเลือกไฟล์ Plugin ZIP'); return; }
     const archive = await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(r.error); r.readAsDataURL(file); });
-    act(() => api('/admin/plugins', { method: 'POST', body: { archive, ...(category ? { category } : {}), ...(custom ? { priceTiers: withIds(tiers) } : {}) } }), 'ตรวจสอบและติดตั้งปลั๊กอินแล้ว'); form.reset();
+    act(() => api('/admin/plugins', { method: 'POST', body: { archive, ...(category ? { category } : {}), ...(tech ? { tech } : {}), ...(access ? { access } : {}), ...(custom ? { priceTiers: withIds(tiers) } : {}) } }), 'ตรวจสอบและติดตั้งปลั๊กอินแล้ว'); form.reset();
   }} className="space-y-3">
     <div className="flex flex-wrap items-center gap-3"><input name="archive" required type="file" accept=".zip,application/zip" className="text-xs"/><button disabled={busy} className="primary-button flex gap-2"><Upload className="h-4 w-4"/>ตรวจสอบและติดตั้ง</button><span className="text-xs text-slate-500">ต้องมี manifest.json · ZIP ไม่เกิน 10MB · หลังแตกไม่เกิน 20MB</span></div>
-    <div className="flex flex-wrap items-center gap-3 text-xs"><span className="font-bold text-slate-600">หมวดหมู่</span><CategorySelect value={category} categories={categories} onChange={setCategory}/>
+    <div className="flex flex-wrap items-center gap-3 text-xs"><span className="font-bold text-slate-600">หมวดหมู่</span><CategorySelect value={category} categories={categories} onChange={setCategory}/><TechAccessSelects tech={tech} access={access} onTech={setTech} onAccess={setAccess}/>
       <label className="flex items-center gap-1.5 font-bold text-slate-600"><input type="checkbox" checked={custom} onChange={(e) => setCustom(e.target.checked)}/>กำหนดระดับราคาเอง (ไม่เลือก = ใช้ราคาใน manifest)</label></div>
     {custom && <TierEditor tiers={tiers} onChange={setTiers} canOffline={false}/>}
   </form>;

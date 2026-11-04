@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { BookOpen, Check, Download, ExternalLink, FileText, FlaskConical, Play, Puzzle, X } from 'lucide-react';
+import { BookOpen, Check, Code2, Download, FileSpreadsheet, Globe, LayoutGrid, Package, Search, Server, ExternalLink, FileText, FlaskConical, Play, Puzzle, X } from 'lucide-react';
 import { api } from '../../lib/api';
-import { HtmlPlugin, PriceTier } from '../../types';
+import { ACCESS_LABELS, HtmlPlugin, PluginAccess, PluginCategory, PluginTech, PriceTier, TECH_LABELS } from '../../types';
 import { OrderTarget } from '../modals/QuickOrderModal';
 
 interface Props {
@@ -12,9 +12,15 @@ interface Props {
 export function HtmlPluginCatalog({ unlockedProgramIds, onOrder }: Props) {
   const [plugins, setPlugins] = useState<HtmlPlugin[]>([]);
   const [selected, setSelected] = useState<HtmlPlugin | null>(null);
+  const [categories, setCategories] = useState<PluginCategory[]>([]);
+  const [draft, setDraft] = useState('');
+  const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
+  const [access, setAccess] = useState<'all' | PluginAccess>('all');
+  const [sort, setSort] = useState<'featured' | 'newest' | 'popular' | 'name' | 'priceAsc' | 'priceDesc'>('featured');
+  const [tech, setTech] = useState<'all' | PluginTech>('all');
 
-  useEffect(() => { api<HtmlPlugin[]>('/plugins').then(setPlugins).catch(() => setPlugins([])); }, []);
+  useEffect(() => { api<HtmlPlugin[]>('/plugins').then(setPlugins).catch(() => setPlugins([])); api<PluginCategory[]>('/categories').then(setCategories).catch(() => setCategories([])); }, []);
   if (!plugins.length) return <section id="html-plugins" className="max-w-7xl mx-auto px-6 lg:px-10 py-12">
     <div className="rounded-[28px] border border-blue-200 bg-white p-10 text-center shadow-sm">
       <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-blue-50 text-blue-600"><Puzzle className="h-8 w-8" /></div>
@@ -36,8 +42,17 @@ export function HtmlPluginCatalog({ unlockedProgramIds, onOrder }: Props) {
     });
   };
   const buy = (plugin: HtmlPlugin) => (plugin.priceTiers.length > 1 ? setSelected(plugin) : order(plugin, plugin.priceTiers[0]));
-  const categories = Array.from(new Map(plugins.filter((p) => p.categoryId).map((p) => [p.categoryId, p.category])).entries());
-  const visible = category === 'all' ? plugins : plugins.filter((p) => p.categoryId === category);
+  const q = query.trim().toLowerCase();
+  const matching = plugins.filter((p) => (category === 'all' || p.categoryId === category) && (access === 'all' || p.access === access)
+    && (!q || `${p.name} ${p.description} ${p.category} ${p.highlights.join(' ')}`.toLowerCase().includes(q)));
+  const techCount = (t: 'all' | PluginTech) => (t === 'all' ? matching.length : matching.filter((p) => p.tech === t).length);
+  const price = (p: HtmlPlugin) => p.program?.price ?? 0;
+  const visible = matching.filter((p) => tech === 'all' || p.tech === tech).sort((a, b) => ({
+    featured: 0, newest: String(b.installedAt || '').localeCompare(String(a.installedAt || '')), popular: b.popularity - a.popularity,
+    name: a.name.localeCompare(b.name, 'th'), priceAsc: price(a) - price(b), priceDesc: price(b) - price(a),
+  })[sort]);
+  const TECH_ICON: Record<PluginTech, React.ComponentType<{ className?: string }>> = { html: Code2, gas: Globe, php: Server, excel: FileSpreadsheet, other: Package };
+  const selectCls = 'h-12 rounded-2xl border border-blue-100 bg-white px-4 text-sm font-bold text-slate-700 outline-none focus:border-blue-500';
 
   return <section className="max-w-7xl mx-auto px-6 lg:px-10 pt-12" id="html-plugins">
     <div className="rounded-[28px] bg-gradient-to-br from-blue-950 via-indigo-950 to-blue-800 p-6 lg:p-8 text-white overflow-hidden relative">
@@ -46,7 +61,20 @@ export function HtmlPluginCatalog({ unlockedProgramIds, onOrder }: Props) {
         <div><div className="text-xs font-bold text-sky-300 tracking-widest">HTML STANDALONE PLUGINS</div><h2 className="text-2xl lg:text-3xl font-black mt-2">โปรแกรมสำหรับครู พร้อมทดลองใช้งานจริง</h2><p className="text-sm text-blue-100 mt-2">เปิดทดลองด้วยข้อมูลตัวอย่างได้ทันที พร้อมคู่มือ PDF และแยกข้อมูลจริงออกจากโหมดทดลอง</p></div>
         <div className="px-4 py-2 rounded-full bg-white/10 border border-white/15 text-sm font-bold">{plugins.length} โปรแกรมพร้อมใช้</div>
       </div>
-      {categories.length > 0 && <div className="relative mb-5 flex flex-wrap gap-2">{[['all', 'ทุกหมวดหมู่'], ...categories].map(([id, label]) => <button key={id} onClick={() => setCategory(id)} className={`rounded-full px-4 py-1.5 text-xs font-bold ${category === id ? 'bg-white text-blue-900' : 'bg-white/10 text-blue-100 hover:bg-white/20'}`}>{label}</button>)}</div>}
+      <form role="search" onSubmit={(e) => { e.preventDefault(); setQuery(draft); }} className="relative mb-5 rounded-3xl bg-white p-4 text-slate-900 shadow-xl">
+        <div className="grid gap-3 lg:grid-cols-[1fr_200px_220px_190px_auto]">
+          <label className="relative"><Search className="absolute left-4 top-3.5 h-5 w-5 text-slate-400"/><input value={draft} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) setQuery(''); }} placeholder="ค้นหาระบบงาน เช่น ตารางสอน, ลงเวลา, คะแนน..." aria-label="ค้นหาระบบงาน" className="h-12 w-full rounded-2xl border border-blue-100 bg-white pl-12 pr-4 text-sm outline-none focus:border-blue-500"/></label>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="หมวดหมู่" className={selectCls}><option value="all">ทุกหมวดหมู่</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
+          <select value={access} onChange={(e) => setAccess(e.target.value as 'all' | PluginAccess)} aria-label="ประเภทสิทธิ์" className={selectCls}><option value="all">ทุกประเภทสิทธิ์</option>{(Object.keys(ACCESS_LABELS) as PluginAccess[]).map((a) => <option key={a} value={a}>{ACCESS_LABELS[a]}</option>)}</select>
+          <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="เรียงลำดับ" className={selectCls}><option value="featured">เรียง: แนะนำ</option><option value="newest">เรียง: ใหม่ล่าสุด</option><option value="popular">เรียง: ยอดนิยม</option><option value="name">เรียง: ชื่อ ก-ฮ</option><option value="priceAsc">เรียง: ราคาต่ำ-สูง</option><option value="priceDesc">เรียง: ราคาสูง-ต่ำ</option></select>
+          <button className="primary-button flex h-12 items-center justify-center gap-2 px-6"><Search className="h-4 w-4"/>ค้นหา</button>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">{(['all', 'html', 'gas', 'php', 'excel', 'other'] as const).map((t) => {
+          const Icon = t === 'all' ? LayoutGrid : TECH_ICON[t]; const active = tech === t;
+          return <button type="button" key={t} onClick={() => setTech(t)} aria-pressed={active} className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-bold transition ${active ? 'border-orange-400 bg-orange-50 text-slate-900 ring-2 ring-orange-200' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-300'}`}><Icon className="h-4 w-4"/>{t === 'all' ? 'ทั้งหมด' : TECH_LABELS[t]}<span className={`rounded-full px-2 py-0.5 text-xs ${active ? 'bg-orange-400 text-white' : 'bg-slate-100 text-slate-500'}`}>{techCount(t)}</span></button>;
+        })}</div>
+      </form>
+      {visible.length === 0 && <div className="relative rounded-2xl bg-white/10 p-8 text-center text-sm text-blue-100">ไม่พบระบบงานที่ตรงกับตัวกรอง ลองเปลี่ยนคำค้นหรือหมวดหมู่</div>}
       <div className="relative grid md:grid-cols-2 xl:grid-cols-3 gap-5">{visible.map((plugin) => {
         const unlocked = unlockedProgramIds.includes(plugin.programId);
         return <article key={plugin.slug} className="bg-white text-slate-900 rounded-2xl overflow-hidden shadow-xl border border-white/20">

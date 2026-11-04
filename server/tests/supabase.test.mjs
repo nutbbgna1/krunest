@@ -147,6 +147,11 @@ test('offline installers: signed upload, entitlement-gated signed download, rest
   const shown = (await buyer.request('/api/plugins/pos-lite')).data;
   assert.equal(shown.category, 'ขายหน้าร้าน'); assert.equal(shown.priceTiers.length, 2); assert.equal(shown.program.price, 400);
   assert.equal(db.prepare("SELECT price FROM programs WHERE id='pos-lite'").get().price, 400);
+  assert.equal(shown.tech, 'other'); assert.equal(shown.access, 'paid');
+  assert.equal((await admin.request(`/api/admin/plugins/${pluginId}/meta`, { method: 'PATCH', body: { tech: 'cobol' } })).res.status, 400);
+  assert.equal((await admin.request(`/api/admin/plugins/${pluginId}/meta`, { method: 'PATCH', body: { tech: 'gas', access: 'pro' } })).res.status, 200);
+  const retagged = (await buyer.request('/api/plugins/pos-lite')).data;
+  assert.equal(retagged.tech, 'gas'); assert.equal(retagged.access, 'pro'); assert.equal(typeof retagged.popularity, 'number'); assert.ok(retagged.installedAt);
 
   db.prepare("INSERT INTO users (email,password_hash,name,role,email_verified) VALUES ('b2@x.test',?,'B2','member',1)").run(hash('Buyer2@12345678'));
   const b2 = session(); await b2.request('/api/auth/login', { method: 'POST', body: { email: 'b2@x.test', password: 'Buyer2@12345678' } }); await b2.request('/api/me');

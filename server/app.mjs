@@ -262,9 +262,14 @@ export function createApp(options = {}) {
 
   // --- Categories + price tiers (stored in settings / plugin manifests, so they are mirrored to Supabase) ---
   const DEFAULT_CATEGORIES = [
-    { id: 'erp', label: 'สต็อก & ขายหน้าร้าน' }, { id: 'creative', label: 'แต่งภาพสินค้า' },
-    { id: 'crm', label: 'รวมแชท & CRM' }, { id: 'document', label: 'เอกสารภาษี & บุคคล' }, { id: 'education', label: 'การศึกษา' },
+    { id: 'academic', label: 'งานวิชาการ' }, { id: 'personnel', label: 'งานบุคคล' },
+    { id: 'budget', label: 'งานงบประมาณ / พัสดุ' }, { id: 'general-admin', label: 'งานบริหารทั่วไป' }, { id: 'teaching', label: 'สื่อการสอน' },
   ];
+  const TECHS = ['html', 'gas', 'php', 'excel', 'other'];
+  const ACCESS = ['free', 'go', 'pro', 'max', 'paid']; // label shown in the catalog; actual access is by purchase/entitlement
+  const techOf = (manifest) => TECHS.includes(manifest.tech) ? manifest.tech : (manifest.type === 'html-standalone' ? 'html' : 'other');
+  const accessOf = (manifest) => ACCESS.includes(manifest.access) ? manifest.access : (minPrice(manifest) === 0 ? 'free' : 'paid');
+
   const getCategories = () => {
     try { const saved = JSON.parse(db.prepare("SELECT value FROM settings WHERE key='plugin_categories'").get()?.value || 'null'); if (Array.isArray(saved)) return saved; } catch { /* fall back to defaults */ }
     return DEFAULT_CATEGORIES;
@@ -321,7 +326,9 @@ export function createApp(options = {}) {
       screenshots: Array.isArray(manifest.screenshots) ? manifest.screenshots.map((path) => `/plugins/${manifest.slug}/demo/${path}`) : [],
       highlights: Array.isArray(manifest.highlights) ? manifest.highlights : [],
       steps: Array.isArray(manifest.steps) ? manifest.steps : [], program: manifest.program ? { ...manifest.program, price: minPrice(manifest) } : null,
-      priceTiers: tiersOf(manifest),
+      priceTiers: tiersOf(manifest), tech: techOf(manifest), access: accessOf(manifest),
+      installedAt: plugin.installed_at || null,
+      popularity: db.prepare('SELECT COUNT(*) c FROM entitlements WHERE program_id=?').get(manifest.program?.id || manifest.slug).c,
       programId: manifest.program?.id || manifest.slug,
       demoUrl: manifest.entry ? `/plugins/${manifest.slug}/demo/` : null,
       appUrl: manifest.entry ? `/plugins/${manifest.slug}/app/` : null,
@@ -390,6 +397,8 @@ export function createApp(options = {}) {
     } catch { return res.status(400).json({error:'ไฟล์ ZIP หรือ manifest ไม่ถูกต้อง'}); }
     if(!manifest?.slug||!manifest?.name||!/^\d+\.\d+\.\d+$/.test(manifest.version||'')||!/^[a-z0-9-]+$/.test(manifest.slug))return res.status(400).json({error:'manifest ต้องมี slug, name และ version แบบ x.y.z'});
     if (req.body.category !== undefined) manifest.category = String(req.body.category || '').trim().slice(0, 30);
+    if (req.body.tech !== undefined) { if (!TECHS.includes(req.body.tech)) return res.status(400).json({error:'ประเภทเทคโนโลยีไม่ถูกต้อง'}); manifest.tech = req.body.tech; }
+    if (req.body.access !== undefined) { if (!ACCESS.includes(req.body.access)) return res.status(400).json({error:'ประเภทสิทธิ์ไม่ถูกต้อง'}); manifest.access = req.body.access; }
     if (req.body.priceTiers !== undefined) { const tiers = sanitizeTiers(req.body.priceTiers); if (!tiers) return res.status(400).json({error:'ระดับราคาไม่ถูกต้อง'}); manifest.priceTiers = tiers; }
     else if (manifest.priceTiers !== undefined) { const tiers = sanitizeTiers(manifest.priceTiers); if (!tiers) return res.status(400).json({error:'priceTiers ใน manifest ไม่ถูกต้อง'}); manifest.priceTiers = tiers; }
     if (manifest.delivery !== undefined && !['online','offline','both'].includes(manifest.delivery)) return res.status(400).json({error:'delivery ต้องเป็น online, offline หรือ both'});
@@ -411,7 +420,7 @@ export function createApp(options = {}) {
       for (const entry of archiveEntries) { const output=resolve(target,entry.entryName); if(!output.startsWith(`${target}/`))return res.status(400).json({error:'ตำแหน่งไฟล์ไม่ปลอดภัย'}); if(entry.isDirectory)mkdirSync(output,{recursive:true});else{mkdirSync(dirname(output),{recursive:true});writeFileSync(output,entry.getData(),{mode:0o644});} }
     }
     const previous = db.prepare('SELECT manifest FROM plugins WHERE slug=?').get(manifest.slug);
-    if (previous) { try { const old = JSON.parse(previous.manifest); if (!manifest.offline && old.offline) manifest.offline = old.offline; if (req.body.priceTiers === undefined && manifest.priceTiers === undefined && old.priceTiers) manifest.priceTiers = old.priceTiers; if (req.body.category === undefined && !manifest.category && old.category) manifest.category = old.category; } catch { /* keep new manifest */ } }
+    if (previous) { try { const old = JSON.parse(previous.manifest); if (!manifest.offline && old.offline) manifest.offline = old.offline; if (req.body.priceTiers === undefined && manifest.priceTiers === undefined && old.priceTiers) manifest.priceTiers = old.priceTiers; if (req.body.category === undefined && !manifest.category && old.category) manifest.category = old.category; if (req.body.tech === undefined && !manifest.tech && old.tech) manifest.tech = old.tech; if (req.body.access === undefined && !manifest.access && old.access) manifest.access = old.access; } catch { /* keep new manifest */ } }
     if (manifest.program) manifest.program.price = minPrice(manifest);
     db.prepare(`INSERT INTO plugins (slug,name,version,status,manifest) VALUES (?,?,?,'inactive',?) ON CONFLICT(slug) DO UPDATE SET name=excluded.name,version=excluded.version,manifest=excluded.manifest`).run(manifest.slug,manifest.name,manifest.version,JSON.stringify(manifest));
     if (['html-standalone','offline-installer'].includes(manifest.type)) db.prepare('INSERT INTO programs (id,name,thai_name,price,active) VALUES (?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET name=excluded.name,thai_name=excluded.thai_name,price=excluded.price').run(manifest.program.id,manifest.program.name,manifest.program.thaiName,Number(manifest.program.price));
@@ -446,6 +455,8 @@ export function createApp(options = {}) {
       if (category && !getCategories().some((c) => c.id === category)) return res.status(400).json({ error: 'ไม่พบหมวดหมู่นี้' });
       manifest.category = category;
     }
+    if (req.body.tech !== undefined) { if (!TECHS.includes(req.body.tech)) return res.status(400).json({ error: 'ประเภทเทคโนโลยีไม่ถูกต้อง' }); manifest.tech = req.body.tech; }
+    if (req.body.access !== undefined) { if (!ACCESS.includes(req.body.access)) return res.status(400).json({ error: 'ประเภทสิทธิ์ไม่ถูกต้อง' }); manifest.access = req.body.access; }
     if (req.body.priceTiers !== undefined) {
       const tiers = sanitizeTiers(req.body.priceTiers);
       if (!tiers) return res.status(400).json({ error: 'ระดับราคาไม่ถูกต้อง (1-6 ระดับ, ชื่อและราคาเป็นจำนวนเต็มไม่ติดลบ)' });
@@ -455,7 +466,7 @@ export function createApp(options = {}) {
     }
     db.prepare('UPDATE plugins SET manifest=? WHERE id=?').run(JSON.stringify(manifest), row.id);
     audit(req.user.id, 'update_plugin_meta', 'plugin', row.id, { category: manifest.category, tiers: manifest.priceTiers?.length });
-    res.json({ ok: true, category: manifest.category || '', priceTiers: tiersOf(manifest) });
+    res.json({ ok: true, category: manifest.category || '', tech: techOf(manifest), access: accessOf(manifest), priceTiers: tiersOf(manifest) });
   });
   // --- Offline installers (Supabase Storage, private bucket + short-lived signed URLs) ---
   const adminPlugin = (req, res) => {
