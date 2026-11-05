@@ -251,6 +251,7 @@ export function createApp(options = {}) {
     let targetId=id;
     if(type==='program'){const p=db.prepare('SELECT * FROM programs WHERE id=? AND active=1').get(id); if(!p)return res.status(404).json({error:'ไม่พบโปรแกรม'}); amount=p.price;
       const found=pluginByProgram(id);
+      if(found&&accessOf(found.manifest)!=='paid')return res.status(400).json({error:'ระบบนี้ใช้สิทธิ์จากแพ็กเกจสมาชิก ไม่สามารถซื้อแยกได้'});
       if(found&&Array.isArray(found.manifest.priceTiers)&&found.manifest.priceTiers.length){const tiers=found.manifest.priceTiers;const wanted=String(req.body.tierId||'');const tier=wanted?tiers.find(t=>t.id===wanted):(tiers.length===1?tiers[0]:null);if(!tier)return res.status(400).json({error:'กรุณาเลือกระดับราคา'});amount=tier.price;targetId=`${id}#${tier.id}`;}}
     else if(type==='plan'){
       const p=db.prepare('SELECT * FROM plans WHERE id=? AND active=1').get(id);
@@ -458,7 +459,7 @@ export function createApp(options = {}) {
       screenshots: Array.isArray(manifest.screenshots) ? manifest.screenshots.map((path) => `/plugins/${manifest.slug}/demo/${path}`) : [],
       highlights: Array.isArray(manifest.highlights) ? manifest.highlights : [],
       steps: Array.isArray(manifest.steps) ? manifest.steps : [], program: manifest.program ? { ...manifest.program, price: minPrice(manifest) } : null,
-      priceTiers: tiersOf(manifest), tech: techOf(manifest), access: accessOf(manifest),
+      priceTiers: accessOf(manifest) === 'paid' ? tiersOf(manifest) : [], tech: techOf(manifest), access: accessOf(manifest),
       installedAt: plugin.installed_at || null,
       popularity: db.prepare('SELECT COUNT(*) c FROM entitlements WHERE program_id=?').get(manifest.program?.id || manifest.slug).c,
       programId: manifest.program?.id || manifest.slug,

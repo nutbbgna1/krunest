@@ -59,6 +59,8 @@ test('admin membership settings control storefront, discounted orders and yearly
     assert.equal((await member('/api/admin/membership', 'PUT', { plans, promoCodes: [] })).status, 403);
     assert.equal((await admin('/api/admin/membership', 'PUT', { plans: plans.map((plan) => ({ ...plan, monthly_price: -1 })), promoCodes: [] })).status, 400);
     db.prepare("INSERT INTO settings (key,value) VALUES ('payment_accounts',?)").run(JSON.stringify([{ id: 'bank', type: 'bank', label: 'ธนาคาร', active: true, bankName: 'ธนาคาร', accountName: 'ทดสอบ', accountNumber: '1234567890' }]));
+    assert.equal((await member('/api/orders', 'POST', { targetType: 'program', targetId: 'go-app' })).status, 400, 'membership-only apps cannot be bought separately');
+    assert.deepEqual((await member('/api/plugins')).data.find((plugin) => plugin.slug === 'go-app').priceTiers, []);
     assert.equal((await member('/api/orders', 'POST', { targetType: 'plan', targetId: 'go', billingCycle: 'monthly', promoCode: 'BADCODE' })).status, 400);
     const order = await member('/api/orders', 'POST', { targetType: 'plan', targetId: 'go', billingCycle: 'yearly', promoCode: 'SCHOOL25' });
     assert.equal(order.status, 201);
