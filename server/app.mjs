@@ -73,9 +73,26 @@ export function createApp(options = {}) {
   };
   const planMeta = () => settingJson('member_plan_meta', {});
   const promoCodes = () => settingJson('member_promo_codes', []);
+  const MEMBER_ACCESS_RANK = { free: 0, go: 1, pro: 2, max: 3 };
+  const manifestMemberAccess = (manifest) => {
+    if (Object.hasOwn(MEMBER_ACCESS_RANK, manifest?.access)) return manifest.access;
+    const prices = Array.isArray(manifest?.priceTiers) ? manifest.priceTiers.map((tier) => Number(tier.price)) : [Number(manifest?.program?.price || 0)];
+    return prices.length && Math.min(...prices) === 0 ? 'free' : 'paid';
+  };
+  const memberPlanAllows = (planId, access) => access !== 'paid' && Object.hasOwn(MEMBER_ACCESS_RANK, planId)
+    && Object.hasOwn(MEMBER_ACCESS_RANK, access) && MEMBER_ACCESS_RANK[planId] >= MEMBER_ACCESS_RANK[access];
+  const membershipPrograms = (planId) => db.prepare("SELECT slug,manifest FROM plugins WHERE status='active'").all().flatMap((row) => {
+    try {
+      const manifest = JSON.parse(row.manifest);
+      if (!memberPlanAllows(planId, manifestMemberAccess(manifest))) return [];
+      const id = manifest.program?.id || row.slug;
+      const program = db.prepare('SELECT id,name,thai_name FROM programs WHERE id=? AND active=1').get(id);
+      return program ? [program] : [];
+    } catch { return []; }
+  });
   const memberPlans = () => {
     const meta = planMeta();
-    return db.prepare('SELECT id,name,monthly_price,yearly_price,program_limit,active FROM plans ORDER BY monthly_price,id').all()
+    return db.prepare('SELECT id,name,monthly_price,yearly_price,active FROM plans ORDER BY monthly_price,id').all()
       .map((plan) => ({ ...plan, badge: meta[plan.id]?.badge || '', subtitle: meta[plan.id]?.subtitle || '' }));
   };
   const setSession = (res, userId) => {
@@ -103,7 +120,7 @@ export function createApp(options = {}) {
     const ids = new Set(), meta = {};
     for (const plan of plans) {
       const name = String(plan.name || '').trim(), badge = String(plan.badge || '').trim(), subtitle = String(plan.subtitle || '').trim();
-      if (!current.includes(plan.id) || ids.has(plan.id) || !name || name.length > 80 || badge.length > 60 || subtitle.length > 200 || !validPrice(plan.monthly_price) || !validPrice(plan.yearly_price) || !Number.isSafeInteger(plan.program_limit) || plan.program_limit < 0 || plan.program_limit > 1000 || typeof plan.active !== 'boolean') return res.status(400).json({ error: 'ชื่อ ราคา หรือสิทธิ์ของแพ็กเกจไม่ถูกต้อง' });
+      if (!current.includes(plan.id) || ids.has(plan.id) || !name || name.length > 80 || badge.length > 60 || subtitle.length > 200 || !validPrice(plan.monthly_price) || !validPrice(plan.yearly_price) || typeof plan.active !== 'boolean') return res.status(400).json({ error: 'ชื่อหรือราคาของแพ็กเกจไม่ถูกต้อง' });
       ids.add(plan.id); meta[plan.id] = { badge, subtitle };
     }
     const seenCodes = new Set(), cleanCodes = [];
@@ -114,8 +131,8 @@ export function createApp(options = {}) {
     }
     db.exec('BEGIN');
     try {
-      const update = db.prepare('UPDATE plans SET name=?,monthly_price=?,yearly_price=?,program_limit=?,active=? WHERE id=?');
-      for (const plan of plans) update.run(plan.name.trim(),plan.monthly_price,plan.yearly_price,plan.program_limit,plan.active ? 1 : 0,plan.id);
+      const update = db.prepare('UPDATE plans SET name=?,monthly_price=?,yearly_price=?,active=? WHERE id=?');
+      for (const plan of plans) update.run(plan.name.trim(),plan.monthly_price,plan.yearly_price,plan.active ? 1 : 0,plan.id);
       db.prepare("INSERT INTO settings (key,value) VALUES ('member_plan_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(meta));
       db.prepare("INSERT INTO settings (key,value) VALUES ('member_promo_codes',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(cleanCodes));
       db.exec('COMMIT');
@@ -207,8 +224,14 @@ export function createApp(options = {}) {
   } catch (error) { next(error); }});
   app.post('/api/auth/logout', auth, csrf, (req, res) => { db.prepare('DELETE FROM sessions WHERE id=?').run(req.session.id); res.setHeader('Set-Cookie','krunest_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'); res.json({ ok:true }); });
   app.get('/api/me', auth, (req, res) => {
-    const entitlements = db.prepare(`SELECT e.*,p.name,p.thai_name FROM entitlements e JOIN programs p ON p.id=e.program_id WHERE user_id=? AND p.active=1 AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP)`).all(req.user.id);
     const subscription = db.prepare(`SELECT s.*,p.name plan_name FROM subscriptions s JOIN plans p ON p.id=s.plan_id WHERE user_id=? AND status='active' AND (s.ends_at IS NULL OR s.ends_at>CURRENT_TIMESTAMP) ORDER BY s.id DESC LIMIT 1`).get(req.user.id);
+    const entitlements = db.prepare(`SELECT e.*,p.name,p.thai_name FROM entitlements e JOIN programs p ON p.id=e.program_id WHERE user_id=? AND e.source<>'subscription' AND p.active=1 AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP)`).all(req.user.id);
+    const effectivePlan = subscription?.plan_id || 'free';
+    const known = new Set(entitlements.map((item) => item.program_id));
+    for (const program of membershipPrograms(effectivePlan)) if (!known.has(program.id)) entitlements.push({
+      program_id: program.id, access_level: 'full', source: `membership:${effectivePlan}`,
+      expires_at: subscription?.ends_at || null, name: program.name, thai_name: program.thai_name,
+    });
     res.json({ user: publicUser(req.user), csrfToken:req.session.csrf_token, entitlements, subscription: subscription || null });
   });
   app.patch('/api/me', auth, csrf, (req, res) => {
@@ -289,14 +312,11 @@ export function createApp(options = {}) {
           .run(order.user_id, programId, tier ? `purchase:${tier.id}` : 'purchase', expires);
       } else {
         db.prepare("UPDATE subscriptions SET status='expired' WHERE user_id=? AND status='active'").run(order.user_id);
+        db.prepare("DELETE FROM entitlements WHERE user_id=? AND source='subscription'").run(order.user_id);
         const [planId, cycleHint] = String(order.target_id).split('#');
         const cycle = cycleHint === 'yearly' ? 'yearly' : 'monthly';
         const end = isoAfter((cycle === 'yearly' ? 365 : 30) * DAY);
         db.prepare('INSERT INTO subscriptions (user_id,plan_id,billing_cycle,ends_at) VALUES (?,?,?,?)').run(order.user_id, planId, cycle, end);
-        const limit = db.prepare('SELECT program_limit FROM plans WHERE id=?').get(planId).program_limit;
-        const programs = db.prepare('SELECT id FROM programs WHERE active=1 ORDER BY price LIMIT ?').all(limit);
-        for (const program of programs) db.prepare("INSERT INTO entitlements (user_id,program_id,source,expires_at) VALUES (?,?,?,?) ON CONFLICT(user_id,program_id) DO UPDATE SET access_level='full',source=excluded.source,expires_at=excluded.expires_at")
-          .run(order.user_id, program.id, 'subscription', end);
       }
       const receipt = `RC${new Date().getFullYear()}${String(order.id).padStart(6, '0')}`;
       db.prepare('INSERT INTO receipts (receipt_no,order_id) VALUES (?,?)').run(receipt, order.id);
@@ -476,8 +496,11 @@ export function createApp(options = {}) {
     if (!plugin) return res.status(404).send('ไม่พบโปรแกรม');
     if (req.user?.role === 'admin') return next();
     const programId = plugin.manifest.program?.id || plugin.slug;
-    const allowed = req.user && db.prepare('SELECT 1 FROM entitlements WHERE user_id=? AND program_id=? AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP)').get(req.user.id, programId);
-    return allowed ? next() : res.status(req.user ? 403 : 401).send(req.user ? 'บัญชีนี้ยังไม่มีสิทธิ์ใช้งานโปรแกรม' : 'กรุณาเข้าสู่ระบบ');
+    if (!req.user) return res.status(401).send('กรุณาเข้าสู่ระบบ');
+    const direct = db.prepare("SELECT 1 FROM entitlements WHERE user_id=? AND program_id=? AND source<>'subscription' AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP)").get(req.user.id, programId);
+    const subscription = db.prepare("SELECT plan_id FROM subscriptions WHERE user_id=? AND status='active' AND (ends_at IS NULL OR ends_at>CURRENT_TIMESTAMP) ORDER BY id DESC LIMIT 1").get(req.user.id);
+    return direct || memberPlanAllows(subscription?.plan_id || 'free', manifestMemberAccess(plugin.manifest))
+      ? next() : res.status(403).send('บัญชีนี้ยังไม่มีสิทธิ์ใช้งานโปรแกรม');
   };
 
   app.get('/api/plugins', (_req,res) => res.json(db.prepare("SELECT slug FROM plugins WHERE status='active' ORDER BY installed_at DESC").all().map(({slug})=>readPlugin(slug)).filter(Boolean).map(publicPlugin)));

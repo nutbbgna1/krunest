@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 
-type Plan = { id: string; name: string; monthly_price: number; yearly_price: number; program_limit: number; active: number | boolean; badge: string; subtitle: string };
+type Plan = { id: string; name: string; monthly_price: number; yearly_price: number; active: number | boolean; badge: string; subtitle: string };
 type Promo = { code: string; label: string; discountPercent: number; active: boolean };
 type Settings = { plans: Plan[]; promoCodes: Promo[] };
 
@@ -29,14 +29,13 @@ export function MembershipSettings() {
 
   if (!data) return <div className="portal-card p-6 text-sm text-slate-500">{error || 'กำลังโหลดข้อมูลสมาชิก...'}</div>;
   return <div className="space-y-5">
-    <div className="portal-card p-5"><h2 className="text-xl font-extrabold">ราคาและชื่อแพ็กเกจสมาชิก</h2><p className="mt-1 text-sm text-slate-500">ราคาที่กำหนดตรงนี้จะใช้ทั้งบนหน้าร้านและยอดชำระจริง สิทธิ์รายเดือนมีอายุ 30 วัน รายปีมีอายุ 365 วัน</p>
+    <div className="portal-card p-5"><h2 className="text-xl font-extrabold">ราคาและชื่อแพ็กเกจสมาชิก</h2><p className="mt-1 text-sm text-slate-500">ราคาที่กำหนดตรงนี้จะใช้ทั้งบนหน้าร้านและยอดชำระจริง ส่วนโปรแกรมที่ใช้ได้กำหนดจาก “ประเภทสิทธิ์” ในระบบงานแต่ละตัว</p>
       <div className="mt-5 grid gap-4 lg:grid-cols-2">{data.plans.map((plan) => <section key={plan.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <div className="flex items-center justify-between gap-3"><div className="text-xs font-bold uppercase text-blue-700">{plan.id}</div><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(plan.active)} onChange={(e) => setPlan(plan.id, { active: e.target.checked })}/>แสดงแพ็กเกจ</label></div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-sm font-bold text-slate-700 sm:col-span-2">ชื่อแพ็กเกจ<input className="form-field mt-1" value={plan.name} maxLength={80} onChange={(e) => setPlan(plan.id, { name: e.target.value })}/></label>
           <label className="text-sm font-bold text-slate-700">รายเดือน (บาท)<input className="form-field mt-1" type="number" min="0" max="1000000" value={plan.monthly_price} onChange={(e) => setPlan(plan.id, { monthly_price: Number(e.target.value) })}/></label>
           <label className="text-sm font-bold text-slate-700">รายปี (บาท)<input className="form-field mt-1" type="number" min="0" max="1000000" value={plan.yearly_price} onChange={(e) => setPlan(plan.id, { yearly_price: Number(e.target.value) })}/></label>
-          <label className="text-sm font-bold text-slate-700">จำนวนโปรแกรมที่ใช้ได้<input className="form-field mt-1" type="number" min="0" max="1000" value={plan.program_limit} onChange={(e) => setPlan(plan.id, { program_limit: Number(e.target.value) })}/></label>
           <label className="text-sm font-bold text-slate-700">ป้ายโปรโมชัน<input className="form-field mt-1" value={plan.badge} maxLength={60} placeholder="เช่น ยอดนิยม" onChange={(e) => setPlan(plan.id, { badge: e.target.value })}/></label>
           <label className="text-sm font-bold text-slate-700 sm:col-span-2">คำอธิบายสั้น<input className="form-field mt-1" value={plan.subtitle} maxLength={200} onChange={(e) => setPlan(plan.id, { subtitle: e.target.value })}/></label>
         </div>

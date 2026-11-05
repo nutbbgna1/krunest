@@ -30,7 +30,7 @@ test('admin membership settings control storefront, discounted orders and yearly
   const client = () => { let cookie = '', csrf = ''; return async (path, method = 'GET', body) => {
     const response = await fetch(base + path, { method, headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': csrf }, body: body === undefined ? undefined : JSON.stringify(body) });
     const newCookie = response.headers.get('set-cookie'); if (newCookie) cookie = newCookie.split(';')[0];
-    const data = await response.json(); if (data.csrfToken) csrf = data.csrfToken;
+    const data = response.headers.get('content-type')?.includes('application/json') ? await response.json() : await response.text(); if (data.csrfToken) csrf = data.csrfToken;
     return { status: response.status, data };
   }; };
   try {
@@ -39,14 +39,22 @@ test('admin membership settings control storefront, discounted orders and yearly
     const register = await member('/api/auth/register', 'POST', { email: 'member@example.test', password: 'Teacher@12345', name: 'ครูทดสอบ' });
     await member('/api/auth/verify', 'POST', { token: register.data.devToken });
     await member('/api/auth/login', 'POST', { email: 'member@example.test', password: 'Teacher@12345' });
+    for (const [id, access, price] of [['free-app', 'free', 0], ['go-app', 'go', 100], ['pro-app', 'pro', 200], ['paid-app', 'paid', 300]]) {
+      db.prepare('INSERT INTO programs (id,name,thai_name,price,active) VALUES (?,?,?,?,1)').run(id, id, id, price);
+      db.prepare("INSERT INTO plugins (slug,name,version,status,manifest) VALUES (?,?,?,'active',?)").run(id, id, '1.0.0', JSON.stringify({ slug: id, name: id, version: '1.0.0', type: 'html-standalone', access, program: { id, name: id, thaiName: id, price } }));
+    }
+    assert.deepEqual((await member('/api/me')).data.entitlements.map((item) => item.program_id).sort(), ['free-app']);
+    assert.equal((await member('/api/plugins/free-app/records')).status, 200);
+    assert.equal((await member('/api/plugins/go-app/records')).status, 403);
     assert.equal((await member('/api/admin/membership')).status, 403);
     const initial = (await admin('/api/admin/membership')).data;
-    const plans = initial.plans.map((plan) => plan.id === 'go' ? { ...plan, active: Boolean(plan.active), name: 'สมาชิกห้องเรียน', monthly_price: 320, yearly_price: 3200, program_limit: 3, badge: 'เปิดเทอมใหม่', subtitle: 'สำหรับกิจกรรมหน้าชั้นเรียน' } : { ...plan, active: Boolean(plan.active) });
+    const plans = initial.plans.map((plan) => plan.id === 'go' ? { ...plan, active: Boolean(plan.active), name: 'สมาชิกห้องเรียน', monthly_price: 320, yearly_price: 3200, badge: 'เปิดเทอมใหม่', subtitle: 'สำหรับกิจกรรมหน้าชั้นเรียน' } : { ...plan, active: Boolean(plan.active) });
     assert.equal((await admin('/api/admin/membership', 'PUT', { plans, promoCodes: [{ code: 'SCHOOL25', label: 'ส่วนลดครู 25%', discountPercent: 25, active: true }] })).status, 200);
     const visible = (await member('/api/membership')).data.plans.find((plan) => plan.id === 'go');
     assert.equal(visible.name, 'สมาชิกห้องเรียน');
     assert.equal(visible.monthly_price, 320);
     assert.equal(visible.badge, 'เปิดเทอมใหม่');
+    assert.equal('program_limit' in visible, false);
     assert.equal(db.prepare("SELECT monthly_price FROM plans WHERE id='go'").get().monthly_price, 320);
     assert.equal((await member('/api/admin/membership', 'PUT', { plans, promoCodes: [] })).status, 403);
     assert.equal((await admin('/api/admin/membership', 'PUT', { plans: plans.map((plan) => ({ ...plan, monthly_price: -1 })), promoCodes: [] })).status, 400);
@@ -63,8 +71,16 @@ test('admin membership settings control storefront, discounted orders and yearly
     assert.equal(subscription.billing_cycle, 'yearly');
     assert.equal(subscription.plan_id, 'go');
     assert.ok((new Date(subscription.ends_at) - Date.now()) / 86_400_000 > 360);
+    db.prepare("INSERT INTO entitlements (user_id,program_id,source,expires_at) SELECT id,'pro-app','subscription',? FROM users WHERE email='member@example.test'").run(subscription.ends_at);
+    const memberPrograms = (await member('/api/me')).data.entitlements.map((item) => item.program_id).sort();
+    assert.deepEqual(memberPrograms, ['free-app', 'go-app']);
+    assert.equal((await member('/api/plugins/go-app/records')).status, 200);
+    assert.equal((await member('/api/plugins/pro-app/records')).status, 403);
+    assert.equal((await member('/api/plugins/paid-app/records')).status, 403);
     db.prepare("UPDATE subscriptions SET ends_at='2020-01-01' WHERE user_id=(SELECT id FROM users WHERE email='member@example.test')").run();
-    assert.equal((await member('/api/me')).data.subscription, null);
+    const expired = (await member('/api/me')).data;
+    assert.equal(expired.subscription, null);
+    assert.deepEqual(expired.entitlements.map((item) => item.program_id), ['free-app']);
     const off = (await admin('/api/admin/membership')).data;
     assert.equal((await admin('/api/admin/membership', 'PUT', { plans: off.plans.map((plan) => ({ ...plan, active: Boolean(plan.active) })), promoCodes: off.promoCodes.map((promo) => ({ ...promo, active: false })) })).status, 200);
     assert.equal((await member('/api/orders', 'POST', { targetType: 'plan', targetId: 'go', promoCode: 'SCHOOL25' })).status, 400);
