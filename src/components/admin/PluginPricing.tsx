@@ -74,6 +74,8 @@ export function PluginMeta({ plugin, categories, customerTiers, busy, act }: { p
 export function UploadForm({ categories, customerTiers, busy, act, onError }: { categories: PluginCategory[]; customerTiers: CustomerPriceTier[]; busy: boolean; act: Act; onError: (message: string) => void }) {
   const archiveInputId = useId();
   const [archiveName, setArchiveName] = useState('');
+  const [archiveCount, setArchiveCount] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState('');
   const [legacy, setLegacy] = useState(false);
   const [category, setCategory] = useState('');
   const [tech, setTech] = useState('');
@@ -81,23 +83,31 @@ export function UploadForm({ categories, customerTiers, busy, act, onError }: { 
   const [selectedTierIds, setSelectedTierIds] = useState<string[]>([]);
   const separatePurchase = access === 'paid';
   return <form onSubmit={async (e) => {
-    e.preventDefault(); const form = e.currentTarget; const file = new FormData(form).get('archive') as File;
-    if (!file?.size) { onError('กรุณาเลือกไฟล์ Plugin ZIP'); return; }
+    e.preventDefault(); const form = e.currentTarget; const input = form.elements.namedItem('archive') as HTMLInputElement; const files = [...(input.files || [])];
+    if (!files.length) { onError('กรุณาเลือกไฟล์ Plugin ZIP'); return; }
+    if (legacy && files.length > 1) { onError('ZIP แบบเดิมอัปโหลดได้ครั้งละ 1 ไฟล์'); return; }
     if (separatePurchase && !selectedTierIds.length) { onError('ระบบซื้อแยกต้องเลือกราคาอย่างน้อย 1 ระดับ'); return; }
     const read = (input: File) => new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(r.error); r.readAsDataURL(input); });
-    const archive = await read(file);
     const fields = new FormData(form);
     const manualFile = fields.get('manual') as File;
     const manual = legacy && manualFile?.size ? await read(manualFile) : undefined;
-    act(() => api('/admin/plugins', { method: 'POST', body: { archive, ...(legacy ? { name: String(fields.get('name')||''), slug: String(fields.get('slug')||''), description: String(fields.get('description')||''), price: Number(fields.get('price')||0), ...(manual ? { manual } : {}) } : {}), ...(category ? { category } : {}), ...(tech ? { tech } : {}), ...(access ? { access } : {}), ...(separatePurchase ? { priceTierIds: selectedTierIds } : {}) } }), 'ตรวจสอบและติดตั้งปลั๊กอินแล้ว'); form.reset(); setArchiveName('');
+    act(async () => {
+      for (const [index, file] of files.entries()) {
+        setUploadProgress(`กำลังติดตั้ง ${index + 1}/${files.length}: ${file.name}`);
+        const archive = await read(file);
+        await api('/admin/plugins', { method: 'POST', body: { archive, ...(legacy ? { name: String(fields.get('name')||''), slug: String(fields.get('slug')||''), description: String(fields.get('description')||''), price: Number(fields.get('price')||0), ...(manual ? { manual } : {}) } : {}), ...(category ? { category } : {}), ...(tech ? { tech } : {}), ...(access ? { access } : {}), ...(separatePurchase ? { priceTierIds: selectedTierIds } : {}) } });
+      }
+      form.reset(); setArchiveName(''); setArchiveCount(0); setUploadProgress('');
+    }, files.length > 1 ? `ติดตั้ง Plugin สำเร็จ ${files.length} ระบบ` : 'ตรวจสอบและติดตั้งปลั๊กอินแล้ว');
   }} className="space-y-3">
     <div className="flex flex-wrap items-center gap-3">
-      <input id={archiveInputId} name="archive" required type="file" accept=".zip,application/zip" className="sr-only" onChange={(event)=>setArchiveName(event.target.files?.[0]?.name||'')}/>
+      <input id={archiveInputId} name="archive" required multiple={!legacy} type="file" accept=".zip,application/zip" className="sr-only" onChange={(event)=>{const files=[...(event.target.files||[])];setArchiveCount(files.length);setArchiveName(files.length>1?`${files.length} ไฟล์`:files[0]?.name||'')}}/>
       <label htmlFor={archiveInputId} className="inline-flex cursor-pointer items-center gap-2 rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 transition hover:border-blue-400 hover:bg-blue-100 focus-within:ring-4 focus-within:ring-blue-100"><FileArchive className="h-5 w-5"/>เลือกไฟล์ ZIP</label>
       <span className={`min-w-0 max-w-full truncate text-sm ${archiveName?'font-bold text-slate-700':'text-slate-400'}`}>{archiveName||'ยังไม่ได้เลือกไฟล์'}</span>
-      <button disabled={busy} className="primary-button flex gap-2"><Upload className="h-4 w-4"/>ตรวจสอบและติดตั้ง</button>
+      <button disabled={busy} className="primary-button flex gap-2"><Upload className="h-4 w-4"/>{archiveCount>1?`ติดตั้ง ${archiveCount} ไฟล์`:'ตรวจสอบและติดตั้ง'}</button>
       <span className="text-xs text-slate-500">ZIP ไม่เกิน 20MB · หลังแตกไม่เกิน 60MB</span>
     </div>
+    {uploadProgress&&<div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-bold text-blue-800">{uploadProgress}</div>}
     <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={legacy} onChange={(e)=>setLegacy(e.target.checked)}/>ZIP เดิมที่ไม่มี manifest.json</label>
     {legacy && <div className="grid gap-2 md:grid-cols-2"><input name="name" required placeholder="ชื่อระบบงาน" className="form-field mt-0"/><input name="slug" required pattern="[a-z0-9-]+" placeholder="slug เช่น html-qr-attendance" className="form-field mt-0"/><input name="price" type="number" min="0" defaultValue="0" aria-label="ราคา" className="form-field mt-0"/><label className="text-xs">คู่มือ PDF <input name="manual" type="file" accept=".pdf,application/pdf" className="mt-1 block"/></label><input name="description" placeholder="คำอธิบายสั้น" className="form-field mt-0 md:col-span-2"/></div>}
     <div className="flex flex-wrap items-center gap-3 text-xs"><span className="font-bold text-slate-600">หมวดหมู่</span><CategorySelect value={category} categories={categories} onChange={setCategory}/><TechAccessSelects tech={tech} access={access} onTech={setTech} onAccess={setAccess}/></div>
