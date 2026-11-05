@@ -128,6 +128,12 @@ test('offline installers: signed upload, entitlement-gated signed download, rest
 
   assert.equal((await buyer.request('/api/plugins/pos-lite/download')).res.status, 403, 'no entitlement, no download');
   db.prepare("INSERT INTO entitlements (user_id,program_id,source) VALUES ((SELECT id FROM users WHERE email='buyer@x.test'),'pos-lite','purchase')").run();
+  const idbSnapshot = { databases: { photos: { version: 1, stores: { images: { keyPath: null, entries: [{ key: 'cover', value: { title: 'ภาพหน้าปก' } }] } } } } };
+  const savedIdb = await buyer.request('/api/plugins/pos-lite/indexeddb', { method: 'PUT', body: idbSnapshot });
+  assert.equal(savedIdb.res.status, 200); assert.ok(savedIdb.data.bytes > 0);
+  assert.deepEqual((await buyer.request('/api/plugins/pos-lite/indexeddb')).data, idbSnapshot);
+  assert.ok(sb.objects.has(`user-data/${db.prepare("SELECT id FROM users WHERE email='buyer@x.test'").get().id}/pos-lite/indexeddb.json`));
+  assert.equal(JSON.parse(db.prepare("SELECT payload FROM plugin_records WHERE plugin_slug='pos-lite' AND record_key='__indexeddb__'").get().payload).databases, 1);
   const dl = await buyer.request('/api/plugins/pos-lite/download');
   assert.equal(dl.res.status, 302);
   assert.match(dl.res.headers.get('location'), /^https:\/\/sb\.test\/sign\/offline\/pos-lite\/.*t=300&dl=POS%20Lite%20Setup\.exe/);

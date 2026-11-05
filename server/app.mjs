@@ -519,6 +519,25 @@ export function createApp(options = {}) {
     db.prepare("INSERT INTO plugin_record_events (plugin_slug,user_id,record_key,action) VALUES (?,?,?,'save')").run(req.params.slug,req.user.id,req.params.key);
     res.json({ok:true});
   });
+  const indexedDbPath = (req) => `user-data/${req.user.id}/${req.params.slug}/indexeddb.json`;
+  app.get('/api/plugins/:slug/indexeddb', auth, pluginAccess, async (req,res,next) => { try {
+    if (!storage) return res.json({ databases: {} });
+    const path = indexedDbPath(req);
+    if (!await storage.info(path)) return res.json({ databases: {} });
+    const body = await storage.download(path);
+    res.type('application/json').send(body);
+  } catch (error) { next(error); } });
+  app.put('/api/plugins/:slug/indexeddb', auth, pluginAccess, csrf, async (req,res,next) => { try {
+    if (!storage) return res.status(503).json({error:'พื้นที่เก็บไฟล์ยังไม่พร้อมใช้งาน'});
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || typeof req.body.databases !== 'object') return res.status(400).json({error:'ข้อมูล IndexedDB ไม่ถูกต้อง'});
+    const body=Buffer.from(JSON.stringify(req.body));
+    if(body.length>20*1024*1024)return res.status(413).json({error:'ข้อมูลรูปภาพและไฟล์แนบเกิน 20MB'});
+    await storage.upload(indexedDbPath(req),body,'application/json');
+    db.prepare("INSERT INTO plugin_records (plugin_slug,user_id,record_key,payload) VALUES (?,?,?,?) ON CONFLICT(plugin_slug,user_id,record_key) DO UPDATE SET payload=excluded.payload,updated_at=CURRENT_TIMESTAMP")
+      .run(req.params.slug,req.user.id,'__indexeddb__',JSON.stringify({bytes:body.length,databases:Object.keys(req.body.databases).length}));
+    db.prepare("INSERT INTO plugin_record_events (plugin_slug,user_id,record_key,action) VALUES (?,?,?,'save')").run(req.params.slug,req.user.id,'__indexeddb__');
+    res.json({ok:true,bytes:body.length});
+  } catch (error) { next(error); } });
   app.get('/api/admin/plugin-records', auth, admin, (req,res) => {
     const slug=String(req.query.slug||'');
     if (!/^[a-z0-9-]{1,100}$/.test(slug)) return res.status(400).json({error:'ระบุ slug ของโปรแกรม'});
@@ -547,7 +566,7 @@ export function createApp(options = {}) {
     audit(req.user.id, 'update_customer_price_tiers', 'settings', 'customer_price_tiers', { count: tiers.length });
     res.json(tiers);
   });
-  app.post('/api/admin/plugins',auth,admin,csrf,(req,res)=>{
+  app.post('/api/admin/plugins',auth,admin,csrf,async(req,res,next)=>{ try {
     let manifest; let archiveEntries = null; let archiveBuffer = null;
     try {
       if (req.body.archive) {
@@ -614,9 +633,9 @@ export function createApp(options = {}) {
     if (manifest.program) manifest.program.price = minPrice(manifest);
     db.prepare(`INSERT INTO plugins (slug,name,version,status,manifest) VALUES (?,?,?,'inactive',?) ON CONFLICT(slug) DO UPDATE SET name=excluded.name,version=excluded.version,manifest=excluded.manifest`).run(manifest.slug,manifest.name,manifest.version,JSON.stringify(manifest));
     if (['html-standalone','offline-installer'].includes(manifest.type)) db.prepare('INSERT INTO programs (id,name,thai_name,price,active) VALUES (?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET name=excluded.name,thai_name=excluded.thai_name,price=excluded.price').run(manifest.program.id,manifest.program.name,manifest.program.thaiName,Number(manifest.program.price));
-    if (storage && archiveBuffer) storage.upload(`plugins/${manifest.slug}.zip`, archiveBuffer, 'application/zip').catch((error) => console.error('[storage] plugin archive upload failed:', error.message));
+    if (storage && archiveBuffer) await storage.upload(`plugins/${manifest.slug}.zip`, archiveBuffer, 'application/zip');
     audit(req.user.id,'install_plugin','plugin',manifest.slug);res.status(201).json({ok:true});
-  });
+  } catch (error) { next(error); } });
   app.post('/api/admin/plugins/:id/toggle',auth,admin,csrf,(req,res)=>{const p=db.prepare('SELECT * FROM plugins WHERE id=?').get(req.params.id);if(!p)return res.status(404).json({error:'ไม่พบปลั๊กอิน'});const status=p.status==='active'?'inactive':'active';db.prepare('UPDATE plugins SET status=? WHERE id=?').run(status,p.id);try{const manifest=JSON.parse(p.manifest);if(['html-standalone','offline-installer'].includes(manifest.type))db.prepare('UPDATE programs SET active=? WHERE id=?').run(status==='active'?1:0,manifest.program.id)}catch{}audit(req.user.id,'toggle_plugin','plugin',p.id,{status});res.json({ok:true,status});});
   app.delete('/api/admin/plugins/:id',auth,admin,csrf,(req,res)=>{const plugin=db.prepare('SELECT * FROM plugins WHERE id=?').get(req.params.id);if(!plugin)return res.status(404).json({error:'ไม่พบปลั๊กอิน'});const root=pluginRoot;const target=resolve(root,plugin.slug);if(target.startsWith(`${root}/`))rmSync(target,{recursive:true,force:true});try{const manifest=JSON.parse(plugin.manifest);if(['html-standalone','offline-installer'].includes(manifest.type))db.prepare('UPDATE programs SET active=0 WHERE id=?').run(manifest.program.id);if(storage)storage.remove([`plugins/${plugin.slug}.zip`,manifest.offline?.path]).catch((error)=>console.error('[storage] remove failed:',error.message))}catch{}db.prepare('DELETE FROM plugins WHERE id=?').run(plugin.id);audit(req.user.id,'uninstall_plugin','plugin',plugin.id);res.json({ok:true});});
   app.get('/api/payment-accounts', (_req, res) => res.json(getPaymentAccounts().filter((a) => a.active)));
