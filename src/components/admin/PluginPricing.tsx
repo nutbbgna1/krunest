@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, Tags, Trash2, Upload } from 'lucide-react';
+import React, { useId, useState } from 'react';
+import { FileArchive, Plus, Tags, Trash2, Upload } from 'lucide-react';
 import { api } from '../../lib/api';
 import { ACCESS_LABELS, CustomerPriceTier, PluginAccess, PluginCategory, PluginTech, PriceTier, TECH_LABELS } from '../../types';
 
@@ -70,6 +70,8 @@ export function PluginMeta({ plugin, categories, customerTiers, busy, act }: { p
 
 // Install form: ZIP + optional category and price tiers set at upload time.
 export function UploadForm({ categories, customerTiers, busy, act, onError }: { categories: PluginCategory[]; customerTiers: CustomerPriceTier[]; busy: boolean; act: Act; onError: (message: string) => void }) {
+  const archiveInputId = useId();
+  const [archiveName, setArchiveName] = useState('');
   const [legacy, setLegacy] = useState(false);
   const [category, setCategory] = useState('');
   const [tech, setTech] = useState('');
@@ -84,9 +86,15 @@ export function UploadForm({ categories, customerTiers, busy, act, onError }: { 
     const fields = new FormData(form);
     const manualFile = fields.get('manual') as File;
     const manual = legacy && manualFile?.size ? await read(manualFile) : undefined;
-    act(() => api('/admin/plugins', { method: 'POST', body: { archive, ...(legacy ? { name: String(fields.get('name')||''), slug: String(fields.get('slug')||''), description: String(fields.get('description')||''), price: Number(fields.get('price')||0), ...(manual ? { manual } : {}) } : {}), ...(category ? { category } : {}), ...(tech ? { tech } : {}), ...(access ? { access } : {}), priceTierIds: selectedTierIds } }), 'ตรวจสอบและติดตั้งปลั๊กอินแล้ว'); form.reset();
+    act(() => api('/admin/plugins', { method: 'POST', body: { archive, ...(legacy ? { name: String(fields.get('name')||''), slug: String(fields.get('slug')||''), description: String(fields.get('description')||''), price: Number(fields.get('price')||0), ...(manual ? { manual } : {}) } : {}), ...(category ? { category } : {}), ...(tech ? { tech } : {}), ...(access ? { access } : {}), priceTierIds: selectedTierIds } }), 'ตรวจสอบและติดตั้งปลั๊กอินแล้ว'); form.reset(); setArchiveName('');
   }} className="space-y-3">
-    <div className="flex flex-wrap items-center gap-3"><input name="archive" required type="file" accept=".zip,application/zip" className="text-xs"/><button disabled={busy} className="primary-button flex gap-2"><Upload className="h-4 w-4"/>ตรวจสอบและติดตั้ง</button><span className="text-xs text-slate-500">ZIP ไม่เกิน 20MB · หลังแตกไม่เกิน 60MB</span></div>
+    <div className="flex flex-wrap items-center gap-3">
+      <input id={archiveInputId} name="archive" required type="file" accept=".zip,application/zip" className="sr-only" onChange={(event)=>setArchiveName(event.target.files?.[0]?.name||'')}/>
+      <label htmlFor={archiveInputId} className="inline-flex cursor-pointer items-center gap-2 rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 transition hover:border-blue-400 hover:bg-blue-100 focus-within:ring-4 focus-within:ring-blue-100"><FileArchive className="h-5 w-5"/>เลือกไฟล์ ZIP</label>
+      <span className={`min-w-0 max-w-full truncate text-sm ${archiveName?'font-bold text-slate-700':'text-slate-400'}`}>{archiveName||'ยังไม่ได้เลือกไฟล์'}</span>
+      <button disabled={busy} className="primary-button flex gap-2"><Upload className="h-4 w-4"/>ตรวจสอบและติดตั้ง</button>
+      <span className="text-xs text-slate-500">ZIP ไม่เกิน 20MB · หลังแตกไม่เกิน 60MB</span>
+    </div>
     <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={legacy} onChange={(e)=>setLegacy(e.target.checked)}/>ZIP เดิมที่ไม่มี manifest.json</label>
     {legacy && <div className="grid gap-2 md:grid-cols-2"><input name="name" required placeholder="ชื่อระบบงาน" className="form-field mt-0"/><input name="slug" required pattern="[a-z0-9-]+" placeholder="slug เช่น html-qr-attendance" className="form-field mt-0"/><input name="price" type="number" min="0" defaultValue="0" aria-label="ราคา" className="form-field mt-0"/><label className="text-xs">คู่มือ PDF <input name="manual" type="file" accept=".pdf,application/pdf" className="mt-1 block"/></label><input name="description" placeholder="คำอธิบายสั้น" className="form-field mt-0 md:col-span-2"/></div>}
     <div className="flex flex-wrap items-center gap-3 text-xs"><span className="font-bold text-slate-600">หมวดหมู่</span><CategorySelect value={category} categories={categories} onChange={setCategory}/><TechAccessSelects tech={tech} access={access} onTech={setTech} onAccess={setAccess}/></div>
