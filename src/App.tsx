@@ -22,6 +22,10 @@ import { SalesCenter } from './views/SalesCenter';
 
 const VIEW_MODES: ViewMode[] = ['store', 'workspace', 'member', 'sales', 'admin'];
 const savedViewMode = (): ViewMode => {
+  const params = new URLSearchParams(window.location.search);
+  const urlView = params.get('view') as ViewMode | null;
+  if (urlView && VIEW_MODES.includes(urlView)) return urlView;
+  if (params.has('system')) return 'store';
   try {
     const value = window.localStorage.getItem('krunest:last-view') as ViewMode | null;
     return value && VIEW_MODES.includes(value) ? value : 'store';
@@ -62,7 +66,18 @@ export default function App() {
     finally { setSessionReady(true); }
   };
   useEffect(() => { refreshSession(); }, []);
-  useEffect(() => { try { window.localStorage.setItem('krunest:last-view', viewMode); } catch { /* storage may be unavailable */ } }, [viewMode]);
+  useEffect(() => {
+    try { window.localStorage.setItem('krunest:last-view', viewMode); } catch { /* storage may be unavailable */ }
+    const url = new URL(window.location.href);
+    if (viewMode === 'store') {
+      url.searchParams.delete('view');
+      url.searchParams.delete('admin');
+    } else {
+      url.searchParams.set('view', viewMode);
+      if (viewMode !== 'admin') url.searchParams.delete('admin');
+    }
+    window.history.replaceState({}, document.title, url);
+  }, [viewMode]);
   useEffect(() => { const sync = () => setDetailSlug(new URLSearchParams(window.location.search).get('system')); window.addEventListener('popstate', sync); return () => window.removeEventListener('popstate', sync); }, []);
   useEffect(() => {
     if (!window.location.hash.includes('access_token=')) return;
@@ -123,7 +138,7 @@ export default function App() {
         onLogout={logout}
       />
 
-      {!sessionReady && ['admin','sales','member'].includes(viewMode) ? <main className="flex-1 grid place-items-center p-8 bg-portal-mesh"><div className="text-sm font-bold text-slate-500">กำลังเปิดหน้าที่บันทึกไว้...</div></main> : viewMode === 'admin' && session?.user.role === 'admin' ? <AdminCenter /> : viewMode === 'sales' && session && ['admin','staff'].includes(session.user.role) ? <SalesCenter /> : viewMode === 'member' && session ? <MemberCenter session={session} onRefresh={refreshSession} /> : viewMode === 'member' && !session ? <main className="flex-1 grid place-items-center p-8 bg-portal-mesh"><div className="portal-card max-w-md p-8 text-center"><h1 className="text-2xl font-black">เข้าสู่ระบบเพื่อเปิดศูนย์สมาชิก</h1><p className="text-sm text-slate-500 mt-2 mb-5">จัดการสิทธิ์ คำสั่งซื้อ ทีม และความปลอดภัยของบัญชี</p><button onClick={()=>setAuthOpen(true)} className="primary-button">เข้าสู่ระบบ / สมัครสมาชิก</button></div></main> : viewMode === 'workspace' ? (
+      {!sessionReady && ['admin','sales','member'].includes(viewMode) ? <main className="flex-1 grid place-items-center p-8 bg-portal-mesh"><div className="text-sm font-bold text-slate-500">กำลังเปิดหน้าที่บันทึกไว้...</div></main> : viewMode === 'admin' && session?.user.role === 'admin' ? <AdminCenter /> : viewMode === 'sales' && session && ['admin','staff'].includes(session.user.role) ? <SalesCenter /> : viewMode === 'member' && session ? <MemberCenter session={session} onRefresh={refreshSession} /> : ['admin','sales','member'].includes(viewMode) && !session ? <main className="flex-1 grid place-items-center p-8 bg-portal-mesh"><div className="portal-card max-w-md p-8 text-center"><h1 className="text-2xl font-black">เข้าสู่ระบบเพื่อกลับไปหน้าที่เปิดไว้</h1><p className="text-sm text-slate-500 mt-2 mb-5">เซสชันหมดอายุหรือยังไม่ได้เข้าสู่ระบบ หน้าปัจจุบันยังถูกเก็บไว้และจะไม่พากลับหน้าหลัก</p><button onClick={()=>setAuthOpen(true)} className="primary-button">เข้าสู่ระบบ / สมัครสมาชิก</button></div></main> : viewMode === 'workspace' ? (
         <main className="flex-1">
           <CloudWorkspaceView
             activeAppId={activeCloudAppId}
