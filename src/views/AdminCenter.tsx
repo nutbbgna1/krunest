@@ -11,9 +11,16 @@ import { CustomerPriceTiers } from '../components/admin/CustomerPriceTiers';
 import { CustomerPriceTier, PluginCategory } from '../types';
 
 type Tab='dashboard'|'payments'|'accounts'|'users'|'systems'|'customer-tiers'|'membership'|'announcements'|'emails'|'logs'|'system';
+const ADMIN_TABS: Tab[] = ['dashboard','payments','accounts','users','systems','customer-tiers','membership','announcements','emails','logs','system'];
+const savedAdminTab = (): Tab => {
+  try {
+    const value = window.localStorage.getItem('krunest:admin-tab') as Tab | null;
+    return value && ADMIN_TABS.includes(value) ? value : 'dashboard';
+  } catch { return 'dashboard'; }
+};
 
 export function AdminCenter(){
-  const [tab,setTab]=useState<Tab>('dashboard');
+  const [tab,setTab]=useState<Tab>(savedAdminTab);
   const [data,setData]=useState<any>({summary:{},orders:[],users:[],plugins:[],announcements:[],emails:[],logs:[],supabase:null});
   const [categories,setCategories]=useState<PluginCategory[]>([]);
   const [customerTiers,setCustomerTiers]=useState<CustomerPriceTier[]>([]);
@@ -24,6 +31,7 @@ export function AdminCenter(){
   const [error,setError]=useState('');
   const load=async()=>{setError('');try{const [summary,orders,users,plugins,announcements,emails,logs,supabase,nextCategories,nextCustomerTiers]=await Promise.all([api('/admin/summary'),api('/admin/orders'),api('/admin/users'),api('/admin/plugins'),api('/admin/announcements'),api('/admin/emails'),api('/admin/audit'),api('/admin/supabase'),api<PluginCategory[]>('/categories'),api<CustomerPriceTier[]>('/admin/customer-price-tiers')]);setData({summary,orders,users,plugins,announcements,emails,logs,supabase});setCategories(nextCategories);setCustomerTiers(nextCustomerTiers)}catch(x){setError((x as Error).message)}};
   useEffect(()=>{load()},[]);
+  useEffect(()=>{try{window.localStorage.setItem('krunest:admin-tab',tab)}catch{/* storage may be unavailable */}},[tab]);
   const act=async(task:()=>Promise<unknown>,ok:string)=>{setBusy(true);setError('');setMessage('');try{await task();setMessage(ok);await load()}catch(x){setError((x as Error).message)}finally{setBusy(false)}};
   const users=useMemo(()=>data.users.filter((u:any)=>`${u.name} ${u.email} ${u.organization}`.toLowerCase().includes(query.toLowerCase())),[data.users,query]);
   const nav=[['dashboard','ภาพรวม',LayoutDashboard],['payments','การชำระเงิน',CreditCard],['accounts','บัญชีรับเงิน',Landmark],['users','ผู้ใช้งาน',Users],['customer-tiers','ระดับราคาลูกค้า',BadgeDollarSign],['systems','ระบบงาน',Plug],['membership','แพ็กเกจสมาชิก',ShieldCheck],['announcements','ประกาศ',Megaphone],['emails','อีเมลคิว',Mail],['logs','บันทึกระบบ',Activity],['system','สถานะระบบ',Database]] as const;

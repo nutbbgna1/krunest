@@ -20,8 +20,17 @@ import { MemberCenter } from './views/MemberCenter';
 import { AdminCenter } from './views/AdminCenter';
 import { SalesCenter } from './views/SalesCenter';
 
+const VIEW_MODES: ViewMode[] = ['store', 'workspace', 'member', 'sales', 'admin'];
+const savedViewMode = (): ViewMode => {
+  try {
+    const value = window.localStorage.getItem('krunest:last-view') as ViewMode | null;
+    return value && VIEW_MODES.includes(value) ? value : 'store';
+  } catch { return 'store'; }
+};
+
 export default function App() {
-  const [viewMode, setViewMode] = useState<ViewMode>('store');
+  const [viewMode, setViewMode] = useState<ViewMode>(savedViewMode);
+  const [sessionReady, setSessionReady] = useState(false);
   const [detailSlug, setDetailSlug] = useState(new URLSearchParams(window.location.search).get('system'));
   const [session, setSession] = useState<MemberSession | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -50,8 +59,10 @@ export default function App() {
       setUnlockedProgramIds(data.entitlements.map((item) => item.program_id));
       setCurrentMemberTier(data.subscription?.plan_id || 'free');
     } catch { setSession(null); setUnlockedProgramIds([]); setCurrentMemberTier('free'); }
+    finally { setSessionReady(true); }
   };
   useEffect(() => { refreshSession(); }, []);
+  useEffect(() => { try { window.localStorage.setItem('krunest:last-view', viewMode); } catch { /* storage may be unavailable */ } }, [viewMode]);
   useEffect(() => { const sync = () => setDetailSlug(new URLSearchParams(window.location.search).get('system')); window.addEventListener('popstate', sync); return () => window.removeEventListener('popstate', sync); }, []);
   useEffect(() => {
     if (!window.location.hash.includes('access_token=')) return;
@@ -112,7 +123,7 @@ export default function App() {
         onLogout={logout}
       />
 
-      {viewMode === 'admin' && session?.user.role === 'admin' ? <AdminCenter /> : viewMode === 'sales' && session && ['admin','staff'].includes(session.user.role) ? <SalesCenter /> : viewMode === 'member' && session ? <MemberCenter session={session} onRefresh={refreshSession} /> : viewMode === 'member' && !session ? <main className="flex-1 grid place-items-center p-8 bg-portal-mesh"><div className="portal-card max-w-md p-8 text-center"><h1 className="text-2xl font-black">เข้าสู่ระบบเพื่อเปิดศูนย์สมาชิก</h1><p className="text-sm text-slate-500 mt-2 mb-5">จัดการสิทธิ์ คำสั่งซื้อ ทีม และความปลอดภัยของบัญชี</p><button onClick={()=>setAuthOpen(true)} className="primary-button">เข้าสู่ระบบ / สมัครสมาชิก</button></div></main> : viewMode === 'workspace' ? (
+      {!sessionReady && ['admin','sales','member'].includes(viewMode) ? <main className="flex-1 grid place-items-center p-8 bg-portal-mesh"><div className="text-sm font-bold text-slate-500">กำลังเปิดหน้าที่บันทึกไว้...</div></main> : viewMode === 'admin' && session?.user.role === 'admin' ? <AdminCenter /> : viewMode === 'sales' && session && ['admin','staff'].includes(session.user.role) ? <SalesCenter /> : viewMode === 'member' && session ? <MemberCenter session={session} onRefresh={refreshSession} /> : viewMode === 'member' && !session ? <main className="flex-1 grid place-items-center p-8 bg-portal-mesh"><div className="portal-card max-w-md p-8 text-center"><h1 className="text-2xl font-black">เข้าสู่ระบบเพื่อเปิดศูนย์สมาชิก</h1><p className="text-sm text-slate-500 mt-2 mb-5">จัดการสิทธิ์ คำสั่งซื้อ ทีม และความปลอดภัยของบัญชี</p><button onClick={()=>setAuthOpen(true)} className="primary-button">เข้าสู่ระบบ / สมัครสมาชิก</button></div></main> : viewMode === 'workspace' ? (
         <main className="flex-1">
           <CloudWorkspaceView
             activeAppId={activeCloudAppId}
