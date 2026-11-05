@@ -137,6 +137,17 @@ function migrate(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE NOT NULL, name TEXT NOT NULL, version TEXT NOT NULL,
       status TEXT DEFAULT 'inactive', manifest TEXT NOT NULL, installed_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS plugin_records (
+      plugin_slug TEXT NOT NULL, user_id INTEGER NOT NULL, record_key TEXT NOT NULL,
+      payload TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(plugin_slug, user_id, record_key),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS plugin_record_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, plugin_slug TEXT NOT NULL, user_id INTEGER NOT NULL,
+      record_key TEXT NOT NULL, action TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS audit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT, actor_id INTEGER, action TEXT NOT NULL, subject_type TEXT NOT NULL,
       subject_id TEXT, detail TEXT DEFAULT '{}', created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -152,7 +163,8 @@ function seed(db, { seedDemoPrograms = false } = {}) {
     const disableDemo = db.prepare('UPDATE programs SET active=0 WHERE id=?');
     DEMO_PROGRAMS.forEach(([id]) => disableDemo.run(id));
   }
-  const addPlan = db.prepare('INSERT INTO plans (id,name,monthly_price,yearly_price,program_limit) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,monthly_price=excluded.monthly_price,yearly_price=excluded.yearly_price,program_limit=excluded.program_limit');
+  // Admin edits must survive application restarts.
+  const addPlan = db.prepare('INSERT INTO plans (id,name,monthly_price,yearly_price,program_limit) VALUES (?,?,?,?,?) ON CONFLICT(id) DO NOTHING');
   PLANS.forEach((row) => addPlan.run(...row));
   const adminEmail = (process.env.KRUNEST_ADMIN_EMAIL || 'me.patiphan1@gmail.com').toLowerCase();
   const admin = db.prepare('SELECT id FROM users WHERE email=?').get(adminEmail);

@@ -10,6 +10,7 @@ import { useCart } from './hooks/useCart';
 import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
 import { StoreView } from './views/StoreView';
+import { HtmlPluginDetail } from './views/HtmlPluginDetail';
 import { CloudWorkspaceView } from './components/workspace/CloudWorkspaceView';
 import { ProgramDetailModal } from './components/modals/ProgramDetailModal';
 import { QuickOrderModal, OrderTarget } from './components/modals/QuickOrderModal';
@@ -21,6 +22,7 @@ import { SalesCenter } from './views/SalesCenter';
 
 export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('store');
+  const [detailSlug, setDetailSlug] = useState(new URLSearchParams(window.location.search).get('system'));
   const [session, setSession] = useState<MemberSession | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
 
@@ -46,10 +48,11 @@ export default function App() {
       setCsrfToken(data.csrfToken);
       setSession(data);
       setUnlockedProgramIds(data.entitlements.map((item) => item.program_id));
-      if (data.subscription?.plan_id) setCurrentMemberTier(data.subscription.plan_id);
+      setCurrentMemberTier(data.subscription?.plan_id || 'free');
     } catch { setSession(null); setUnlockedProgramIds([]); setCurrentMemberTier('free'); }
   };
   useEffect(() => { refreshSession(); }, []);
+  useEffect(() => { const sync = () => setDetailSlug(new URLSearchParams(window.location.search).get('system')); window.addEventListener('popstate', sync); return () => window.removeEventListener('popstate', sync); }, []);
   useEffect(() => {
     if (!window.location.hash.includes('access_token=')) return;
     const params = new URLSearchParams(window.location.hash.slice(1));
@@ -119,7 +122,7 @@ export default function App() {
             onBackToStore={() => setViewMode('store')}
           />
         </main>
-      ) : (
+      ) : detailSlug ? <HtmlPluginDetail slug={detailSlug} unlockedProgramIds={unlockedProgramIds} isAdmin={session?.user.role === 'admin'} loggedIn={Boolean(session)} onLogin={() => setAuthOpen(true)} onOrder={setActiveOrderTarget}/> : (
         <StoreView
           memberTier={currentMemberTier}
           unlockedProgramIds={unlockedProgramIds}

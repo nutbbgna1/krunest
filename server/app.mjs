@@ -10,6 +10,7 @@ import { checkSupabase, getSupabaseAdmin, isSupabaseConfigured } from './supabas
 import { syncDatabaseToSupabase } from './supabase-sync.mjs';
 import { createMirror } from './supabase-mirror.mjs';
 import { createStorage, safeObjectName } from './storage.mjs';
+import { storageBridge } from './plugin-storage-bridge.mjs';
 
 const DAY = 86_400_000;
 const token = () => crypto.randomBytes(24).toString('hex');
@@ -29,7 +30,7 @@ export function createApp(options = {}) {
   mkdirSync(pluginRoot, { recursive: true });
   const app = express();
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '15mb' }));
+  app.use(express.json({ limit: '45mb' }));
   app.use((req, res, next) => {
     res.set({
       'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY',
@@ -66,6 +67,17 @@ export function createApp(options = {}) {
   const sales = (req, res, next) => ['admin','staff'].includes(req.user?.role) ? next() : res.status(403).json({ error: 'ไม่มีสิทธิ์ฝ่ายขาย' });
   const csrf = (req, res, next) => ['GET','HEAD','OPTIONS'].includes(req.method) || req.headers['x-csrf-token'] === req.session?.csrf_token
     ? next() : res.status(403).json({ error: 'CSRF token ไม่ถูกต้อง' });
+  const settingJson = (key, fallback) => {
+    try { return JSON.parse(db.prepare('SELECT value FROM settings WHERE key=?').get(key)?.value || 'null') ?? fallback; }
+    catch { return fallback; }
+  };
+  const planMeta = () => settingJson('member_plan_meta', {});
+  const promoCodes = () => settingJson('member_promo_codes', []);
+  const memberPlans = () => {
+    const meta = planMeta();
+    return db.prepare('SELECT id,name,monthly_price,yearly_price,program_limit,active FROM plans ORDER BY monthly_price,id').all()
+      .map((plan) => ({ ...plan, badge: meta[plan.id]?.badge || '', subtitle: meta[plan.id]?.subtitle || '' }));
+  };
   const setSession = (res, userId) => {
     const id = token(); const csrfToken = token();
     db.prepare('DELETE FROM sessions WHERE user_id=?').run(userId);
@@ -81,6 +93,36 @@ export function createApp(options = {}) {
     programs: db.prepare('SELECT * FROM programs WHERE active=1 ORDER BY price').all(),
     plans: db.prepare('SELECT * FROM plans WHERE active=1 ORDER BY monthly_price').all(),
   }));
+  app.get('/api/membership', (_req, res) => res.json({ plans: memberPlans().filter((plan) => plan.active) }));
+  app.get('/api/admin/membership', auth, admin, (_req, res) => res.json({ plans: memberPlans(), promoCodes: promoCodes() }));
+  app.put('/api/admin/membership', auth, admin, csrf, (req, res) => {
+    const current = db.prepare('SELECT id FROM plans').all().map((row) => row.id);
+    const plans = req.body?.plans, codes = req.body?.promoCodes;
+    if (!Array.isArray(plans) || plans.length !== current.length || !Array.isArray(codes) || codes.length > 30) return res.status(400).json({ error: 'ข้อมูลแพ็กเกจหรือโปรโมชันไม่ถูกต้อง' });
+    const validPrice = (value) => Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000;
+    const ids = new Set(), meta = {};
+    for (const plan of plans) {
+      const name = String(plan.name || '').trim(), badge = String(plan.badge || '').trim(), subtitle = String(plan.subtitle || '').trim();
+      if (!current.includes(plan.id) || ids.has(plan.id) || !name || name.length > 80 || badge.length > 60 || subtitle.length > 200 || !validPrice(plan.monthly_price) || !validPrice(plan.yearly_price) || !Number.isSafeInteger(plan.program_limit) || plan.program_limit < 0 || plan.program_limit > 1000 || typeof plan.active !== 'boolean') return res.status(400).json({ error: 'ชื่อ ราคา หรือสิทธิ์ของแพ็กเกจไม่ถูกต้อง' });
+      ids.add(plan.id); meta[plan.id] = { badge, subtitle };
+    }
+    const seenCodes = new Set(), cleanCodes = [];
+    for (const row of codes) {
+      const code = String(row.code || '').trim().toUpperCase(), label = String(row.label || '').trim();
+      if (!/^[A-Z0-9_-]{3,24}$/.test(code) || seenCodes.has(code) || !label || label.length > 80 || !Number.isSafeInteger(row.discountPercent) || row.discountPercent < 1 || row.discountPercent > 100 || typeof row.active !== 'boolean') return res.status(400).json({ error: 'รหัสหรือส่วนลดโปรโมชันไม่ถูกต้อง' });
+      seenCodes.add(code); cleanCodes.push({ code, label, discountPercent: row.discountPercent, active: row.active });
+    }
+    db.exec('BEGIN');
+    try {
+      const update = db.prepare('UPDATE plans SET name=?,monthly_price=?,yearly_price=?,program_limit=?,active=? WHERE id=?');
+      for (const plan of plans) update.run(plan.name.trim(),plan.monthly_price,plan.yearly_price,plan.program_limit,plan.active ? 1 : 0,plan.id);
+      db.prepare("INSERT INTO settings (key,value) VALUES ('member_plan_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(meta));
+      db.prepare("INSERT INTO settings (key,value) VALUES ('member_promo_codes',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(cleanCodes));
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+    audit(req.user.id,'update_membership','settings',null,{plans:plans.length,promoCodes:cleanCodes.length});
+    res.json({ ok: true, plans: memberPlans(), promoCodes: cleanCodes });
+  });
   app.post('/api/auth/register', (req, res) => {
     const email = String(req.body.email || '').trim().toLowerCase();
     const name = String(req.body.name || '').trim();
@@ -166,8 +208,8 @@ export function createApp(options = {}) {
   app.post('/api/auth/logout', auth, csrf, (req, res) => { db.prepare('DELETE FROM sessions WHERE id=?').run(req.session.id); res.setHeader('Set-Cookie','krunest_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'); res.json({ ok:true }); });
   app.get('/api/me', auth, (req, res) => {
     const entitlements = db.prepare(`SELECT e.*,p.name,p.thai_name FROM entitlements e JOIN programs p ON p.id=e.program_id WHERE user_id=? AND p.active=1 AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP)`).all(req.user.id);
-    const subscription = db.prepare(`SELECT s.*,p.name plan_name FROM subscriptions s JOIN plans p ON p.id=s.plan_id WHERE user_id=? AND status='active' ORDER BY s.id DESC LIMIT 1`).get(req.user.id);
-    res.json({ user: publicUser(req.user), csrfToken:req.session.csrf_token, entitlements, subscription });
+    const subscription = db.prepare(`SELECT s.*,p.name plan_name FROM subscriptions s JOIN plans p ON p.id=s.plan_id WHERE user_id=? AND status='active' AND (s.ends_at IS NULL OR s.ends_at>CURRENT_TIMESTAMP) ORDER BY s.id DESC LIMIT 1`).get(req.user.id);
+    res.json({ user: publicUser(req.user), csrfToken:req.session.csrf_token, entitlements, subscription: subscription || null });
   });
   app.patch('/api/me', auth, csrf, (req, res) => {
     const name=String(req.body.name||'').trim(); if(name.length<2) return res.status(400).json({error:'กรุณาระบุชื่อ'});
@@ -187,15 +229,28 @@ export function createApp(options = {}) {
     if(type==='program'){const p=db.prepare('SELECT * FROM programs WHERE id=? AND active=1').get(id); if(!p)return res.status(404).json({error:'ไม่พบโปรแกรม'}); amount=p.price;
       const found=pluginByProgram(id);
       if(found&&Array.isArray(found.manifest.priceTiers)&&found.manifest.priceTiers.length){const tiers=found.manifest.priceTiers;const wanted=String(req.body.tierId||'');const tier=wanted?tiers.find(t=>t.id===wanted):(tiers.length===1?tiers[0]:null);if(!tier)return res.status(400).json({error:'กรุณาเลือกระดับราคา'});amount=tier.price;targetId=`${id}#${tier.id}`;}}
-    else if(type==='plan'){const p=db.prepare('SELECT * FROM plans WHERE id=? AND active=1').get(id); if(!p)return res.status(404).json({error:'ไม่พบแพ็กเกจ'}); amount=req.body.billingCycle==='yearly'?p.yearly_price:p.monthly_price;}
+    else if(type==='plan'){
+      const p=db.prepare('SELECT * FROM plans WHERE id=? AND active=1').get(id);
+      if(!p)return res.status(404).json({error:'ไม่พบแพ็กเกจ'});
+      const cycle=req.body.billingCycle==='yearly'?'yearly':'monthly';
+      amount=cycle==='yearly'?p.yearly_price:p.monthly_price;
+      targetId=`${id}#${cycle}`;
+      const code=String(req.body.promoCode||'').trim().toUpperCase();
+      if(code){
+        const promo=promoCodes().find((row)=>row.code===code&&row.active);
+        if(!promo)return res.status(400).json({error:'รหัสโปรโมชันไม่ถูกต้องหรือปิดใช้งานแล้ว'});
+        amount=Math.max(0,amount-Math.round(amount*promo.discountPercent/100));
+        req.memberPromo={code,label:promo.label,discountPercent:promo.discountPercent};
+      }
+    }
     else return res.status(400).json({error:'ประเภทรายการไม่ถูกต้อง'});
     const reference=`KN${new Date().toISOString().slice(2,10).replaceAll('-','')}${crypto.randomInt(10000,99999)}`;
-    const result=db.prepare('INSERT INTO orders (reference,user_id,target_type,target_id,amount,expires_at) VALUES (?,?,?,?,?,?)').run(reference,req.user.id,type,targetId,amount,isoAfter(48*60*60_000)); audit(req.user.id,'create_order','order',result.lastInsertRowid);
+    const result=db.prepare('INSERT INTO orders (reference,user_id,target_type,target_id,amount,expires_at) VALUES (?,?,?,?,?,?)').run(reference,req.user.id,type,targetId,amount,isoAfter(48*60*60_000)); audit(req.user.id,'create_order','order',result.lastInsertRowid,req.memberPromo || {});
     const order=db.prepare('SELECT * FROM orders WHERE id=?').get(result.lastInsertRowid);
     const pp=accounts.find(a=>a.type==='promptpay');
     const promptPayPayload=pp?generatePromptPayPayload(pp.accountNumber,{amount:Number(amount)}):null;
     const qrDataUrl=promptPayPayload?await QRCode.toDataURL(promptPayPayload,{width:320,margin:1,errorCorrectionLevel:'M'}):null;
-    res.status(201).json({...order,promptPayPayload,qrDataUrl,accounts});
+    res.status(201).json({...order,promptPayPayload,qrDataUrl,accounts,promo:req.memberPromo || null});
   }catch(error){next(error)}});
   app.post('/api/orders/:id/slip',auth,csrf,(req,res)=>{ const order=db.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(req.params.id,req.user.id); if(!order||order.status!=='pending')return res.status(404).json({error:'ไม่พบคำสั่งซื้อที่รอชำระ'}); const {fileName,mimeType,data}=req.body; if(!['image/jpeg','image/png','application/pdf'].includes(mimeType)||typeof data!=='string')return res.status(400).json({error:'รองรับไฟล์ JPG, PNG หรือ PDF เท่านั้น'}); const size=Buffer.byteLength(data,'utf8'); if(size>5*1024*1024)return res.status(413).json({error:'ไฟล์ต้องไม่เกิน 5MB'}); db.prepare('INSERT OR REPLACE INTO payment_slips (order_id,file_name,mime_type,size,data) VALUES (?,?,?,?,?)').run(order.id,basename(String(fileName||'slip')),mimeType,size,data); db.prepare("UPDATE orders SET status='reviewing' WHERE id=?").run(order.id); notify(req.user.id,'รับหลักฐานการชำระเงินแล้ว',`คำสั่งซื้อ ${order.reference} กำลังรอตรวจสอบ`); res.status(201).json({ok:true}); });
   app.get('/api/orders/:id/receipt',auth,(req,res)=>{const row=db.prepare(`SELECT r.receipt_no,r.issued_at,o.reference,o.amount,o.target_type,o.target_id,u.name,u.organization FROM receipts r JOIN orders o ON o.id=r.order_id JOIN users u ON u.id=o.user_id WHERE o.id=? AND (o.user_id=? OR ? IN ('admin','staff'))`).get(req.params.id,req.user.id,req.user.role); if(!row)return res.status(404).json({error:'ยังไม่มีใบเสร็จ'}); res.json(row);});
@@ -207,7 +262,52 @@ export function createApp(options = {}) {
 
   const orderRows = () => db.prepare(`SELECT o.*,u.name,u.email,u.organization,ps.file_name FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN payment_slips ps ON ps.order_id=o.id ORDER BY o.id DESC`).all();
   const slipForOrder = (req,res) => {const slip=db.prepare('SELECT file_name,mime_type,size,data,uploaded_at FROM payment_slips WHERE order_id=?').get(req.params.id);return slip?res.json(slip):res.status(404).json({error:'รายการนี้ยังไม่มีหลักฐานการชำระเงิน'});};
-  const reviewOrder = (req,res) => {const order=db.prepare('SELECT * FROM orders WHERE id=?').get(req.params.id);if(!order||!['reviewing','pending'].includes(order.status))return res.status(404).json({error:'ไม่พบรายการที่รอตรวจสอบ'});if(req.body.decision==='reject'){db.prepare("UPDATE orders SET status='rejected',reject_reason=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?").run(String(req.body.reason||'หลักฐานไม่ถูกต้อง'),req.user.id,order.id);notify(order.user_id,'การชำระเงินไม่ผ่านการตรวจสอบ',String(req.body.reason||'กรุณาส่งหลักฐานใหม่'));audit(req.user.id,'reject_order','order',order.id);return res.json({ok:true});}if(req.body.decision!=='approve')return res.status(400).json({error:'ผลตรวจสอบไม่ถูกต้อง'});if(order.amount>0&&!db.prepare('SELECT 1 FROM payment_slips WHERE order_id=?').get(order.id))return res.status(400).json({error:'ยังไม่มีหลักฐานการชำระเงิน จึงอนุมัติไม่ได้'});db.exec('BEGIN');try{db.prepare("UPDATE orders SET status='approved',reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?").run(req.user.id,order.id);if(order.target_type==='program'){const {programId,tierId}=splitTarget(order.target_id);const found=tierId?pluginByProgram(programId):null;const tier=found?tiersOf(found.manifest).find(t=>t.id===tierId):null;const expires=tier?.durationDays?isoAfter(tier.durationDays*DAY):null;const current=db.prepare('SELECT source,expires_at FROM entitlements WHERE user_id=? AND program_id=?').get(order.user_id,programId);const currentTier=current?.source?.startsWith('purchase:')&&found?tiersOf(found.manifest).find(t=>t.id===current.source.slice(9)):null;const currentActive=currentTier&&(!current.expires_at||current.expires_at>new Date().toISOString());if(!(currentActive&&tier&&currentTier.price>tier.price))db.prepare("INSERT INTO entitlements (user_id,program_id,source,expires_at) VALUES (?,?,?,?) ON CONFLICT(user_id,program_id) DO UPDATE SET access_level='full',source=excluded.source,expires_at=excluded.expires_at").run(order.user_id,programId,tier?`purchase:${tier.id}`:'purchase',expires);}else{db.prepare("UPDATE subscriptions SET status='expired' WHERE user_id=? AND status='active'").run(order.user_id);const cycle='monthly';const end=isoAfter(30*DAY);db.prepare('INSERT INTO subscriptions (user_id,plan_id,billing_cycle,ends_at) VALUES (?,?,?,?)').run(order.user_id,order.target_id,cycle,end);const limit=db.prepare('SELECT program_limit FROM plans WHERE id=?').get(order.target_id).program_limit;const programs=db.prepare('SELECT id FROM programs WHERE active=1 ORDER BY price LIMIT ?').all(limit);for(const p of programs)db.prepare("INSERT INTO entitlements (user_id,program_id,source,expires_at) VALUES (?,?,?,?) ON CONFLICT(user_id,program_id) DO UPDATE SET access_level='full',source=excluded.source,expires_at=excluded.expires_at").run(order.user_id,p.id,'subscription',end);}const receipt=`RC${new Date().getFullYear()}${String(order.id).padStart(6,'0')}`;db.prepare('INSERT INTO receipts (receipt_no,order_id) VALUES (?,?)').run(receipt,order.id);db.exec('COMMIT');notify(order.user_id,'อนุมัติการชำระเงินแล้ว',`คำสั่งซื้อ ${order.reference} พร้อมใช้งาน`);const u=db.prepare('SELECT email,name FROM users WHERE id=?').get(order.user_id);queueEmail(u.email,'payment_approved',{name:u.name,reference:order.reference,receipt});audit(req.user.id,'approve_order','order',order.id);res.json({ok:true,receipt});}catch(error){db.exec('ROLLBACK');throw error;}};
+  const reviewOrder = (req, res) => {
+    const order = db.prepare('SELECT * FROM orders WHERE id=?').get(req.params.id);
+    if (!order || !['reviewing','pending'].includes(order.status)) return res.status(404).json({ error: 'ไม่พบรายการที่รอตรวจสอบ' });
+    if (req.body.decision === 'reject') {
+      db.prepare("UPDATE orders SET status='rejected',reject_reason=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?")
+        .run(String(req.body.reason || 'หลักฐานไม่ถูกต้อง'), req.user.id, order.id);
+      notify(order.user_id, 'การชำระเงินไม่ผ่านการตรวจสอบ', String(req.body.reason || 'กรุณาส่งหลักฐานใหม่'));
+      audit(req.user.id, 'reject_order', 'order', order.id);
+      return res.json({ ok: true });
+    }
+    if (req.body.decision !== 'approve') return res.status(400).json({ error: 'ผลตรวจสอบไม่ถูกต้อง' });
+    if (order.amount > 0 && !db.prepare('SELECT 1 FROM payment_slips WHERE order_id=?').get(order.id)) return res.status(400).json({ error: 'ยังไม่มีหลักฐานการชำระเงิน จึงอนุมัติไม่ได้' });
+    db.exec('BEGIN');
+    try {
+      db.prepare("UPDATE orders SET status='approved',reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?").run(req.user.id, order.id);
+      if (order.target_type === 'program') {
+        const { programId, tierId } = splitTarget(order.target_id);
+        const found = tierId ? pluginByProgram(programId) : null;
+        const tier = found ? tiersOf(found.manifest).find((t) => t.id === tierId) : null;
+        const expires = tier?.durationDays ? isoAfter(tier.durationDays * DAY) : null;
+        const current = db.prepare('SELECT source,expires_at FROM entitlements WHERE user_id=? AND program_id=?').get(order.user_id, programId);
+        const currentTier = current?.source?.startsWith('purchase:') && found ? tiersOf(found.manifest).find((t) => t.id === current.source.slice(9)) : null;
+        const currentActive = currentTier && (!current.expires_at || current.expires_at > new Date().toISOString());
+        if (!(currentActive && tier && currentTier.price > tier.price)) db.prepare("INSERT INTO entitlements (user_id,program_id,source,expires_at) VALUES (?,?,?,?) ON CONFLICT(user_id,program_id) DO UPDATE SET access_level='full',source=excluded.source,expires_at=excluded.expires_at")
+          .run(order.user_id, programId, tier ? `purchase:${tier.id}` : 'purchase', expires);
+      } else {
+        db.prepare("UPDATE subscriptions SET status='expired' WHERE user_id=? AND status='active'").run(order.user_id);
+        const [planId, cycleHint] = String(order.target_id).split('#');
+        const cycle = cycleHint === 'yearly' ? 'yearly' : 'monthly';
+        const end = isoAfter((cycle === 'yearly' ? 365 : 30) * DAY);
+        db.prepare('INSERT INTO subscriptions (user_id,plan_id,billing_cycle,ends_at) VALUES (?,?,?,?)').run(order.user_id, planId, cycle, end);
+        const limit = db.prepare('SELECT program_limit FROM plans WHERE id=?').get(planId).program_limit;
+        const programs = db.prepare('SELECT id FROM programs WHERE active=1 ORDER BY price LIMIT ?').all(limit);
+        for (const program of programs) db.prepare("INSERT INTO entitlements (user_id,program_id,source,expires_at) VALUES (?,?,?,?) ON CONFLICT(user_id,program_id) DO UPDATE SET access_level='full',source=excluded.source,expires_at=excluded.expires_at")
+          .run(order.user_id, program.id, 'subscription', end);
+      }
+      const receipt = `RC${new Date().getFullYear()}${String(order.id).padStart(6, '0')}`;
+      db.prepare('INSERT INTO receipts (receipt_no,order_id) VALUES (?,?)').run(receipt, order.id);
+      db.exec('COMMIT');
+      notify(order.user_id, 'อนุมัติการชำระเงินแล้ว', `คำสั่งซื้อ ${order.reference} พร้อมใช้งาน`);
+      const user = db.prepare('SELECT email,name FROM users WHERE id=?').get(order.user_id);
+      queueEmail(user.email, 'payment_approved', { name: user.name, reference: order.reference, receipt });
+      audit(req.user.id, 'approve_order', 'order', order.id);
+      res.json({ ok: true, receipt });
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+  };
 
   app.get('/api/sales/summary',auth,sales,(_req,res)=>res.json({totalOrders:db.prepare('SELECT COUNT(*) count FROM orders').get().count,pendingOrders:db.prepare("SELECT COUNT(*) count FROM orders WHERE status IN ('pending','reviewing')").get().count,approvedOrders:db.prepare("SELECT COUNT(*) count FROM orders WHERE status='approved'").get().count,revenue:db.prepare("SELECT COALESCE(SUM(amount),0) total FROM orders WHERE status='approved'").get().total,customers:db.prepare('SELECT COUNT(DISTINCT user_id) count FROM orders').get().count}));
   app.get('/api/sales/orders',auth,sales,(_req,res)=>res.json(orderRows()));
@@ -300,6 +400,18 @@ export function createApp(options = {}) {
     }
     return out;
   };
+  const getCustomerPriceTiers = () => {
+    const saved = settingJson('customer_price_tiers', []);
+    return sanitizeTiers(saved) || [];
+  };
+  const tiersFromIds = (input) => {
+    if (!Array.isArray(input) || input.length < 1 || input.length > 6) return null;
+    const ids = input.map((value) => String(value || '').trim().toLowerCase());
+    if (new Set(ids).size !== ids.length) return null;
+    const library = new Map(getCustomerPriceTiers().map((tier) => [tier.id, tier]));
+    const selected = ids.map((id) => library.get(id));
+    return selected.every(Boolean) ? selected : null;
+  };
   const tiersOf = (manifest) => Array.isArray(manifest.priceTiers) && manifest.priceTiers.length
     ? manifest.priceTiers
     : [{ id: 'standard', name: 'มาตรฐาน', price: Number(manifest.program?.price || 0), description: '', offline: true, durationDays: null }];
@@ -349,6 +461,14 @@ export function createApp(options = {}) {
     if ((target !== appRoot && !target.startsWith(`${appRoot}/`)) || !existsSync(target)) return res.status(404).send('ไม่พบไฟล์');
     res.setHeader('Cache-Control', requested.endsWith('.html') ? 'no-store' : 'public, max-age=3600');
     if (mode === 'demo' && requested === basename(plugin.manifest.entry) && !req.query.vsdemo) return res.redirect(`${req.path}?vsdemo=1`);
+    if (mode === 'app' && requested.endsWith('.html')) {
+      const rows=db.prepare('SELECT record_key,payload FROM plugin_records WHERE plugin_slug=? AND user_id=?').all(plugin.slug,req.user.id)
+        .map((row)=>({record_key:row.record_key,payload:JSON.parse(row.payload)}));
+      const html=readFileSync(target,'utf8');
+      const script=storageBridge(plugin.slug,req.session.csrf_token,rows);
+      res.setHeader('Content-Type','text/html; charset=utf-8');
+      return res.send(html.replace(/<head([^>]*)>/i, (match)=>match+script));
+    }
     return res.sendFile(target);
   };
   const pluginAccess = (req, res, next) => {
@@ -362,6 +482,26 @@ export function createApp(options = {}) {
 
   app.get('/api/plugins', (_req,res) => res.json(db.prepare("SELECT slug FROM plugins WHERE status='active' ORDER BY installed_at DESC").all().map(({slug})=>readPlugin(slug)).filter(Boolean).map(publicPlugin)));
   app.get('/api/plugins/:slug', (req,res) => { const plugin=readPlugin(req.params.slug); return plugin ? res.json(publicPlugin(plugin)) : res.status(404).json({error:'ไม่พบโปรแกรม'}); });
+  const recordKey = (value) => typeof value === 'string' && value.length > 0 && value.length <= 100 && !/[\x00-\x1f/]/.test(value);
+  app.get('/api/plugins/:slug/records', auth, pluginAccess, (req,res) => {
+    res.json(db.prepare('SELECT record_key,payload,updated_at FROM plugin_records WHERE plugin_slug=? AND user_id=? ORDER BY updated_at DESC').all(req.params.slug,req.user.id)
+      .map((row)=>({key:row.record_key,value:JSON.parse(row.payload),updatedAt:row.updated_at})));
+  });
+  app.put('/api/plugins/:slug/records/:key', auth, pluginAccess, csrf, (req,res) => {
+    if (!recordKey(req.params.key) || req.body === null || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({error:'ข้อมูลบันทึกไม่ถูกต้อง'});
+    const payload=JSON.stringify(req.body);
+    if (Buffer.byteLength(payload)>2*1024*1024) return res.status(413).json({error:'ข้อมูลบันทึกเกิน 2MB'});
+    db.prepare("INSERT INTO plugin_records (plugin_slug,user_id,record_key,payload) VALUES (?,?,?,?) ON CONFLICT(plugin_slug,user_id,record_key) DO UPDATE SET payload=excluded.payload,updated_at=CURRENT_TIMESTAMP")
+      .run(req.params.slug,req.user.id,req.params.key,payload);
+    db.prepare("INSERT INTO plugin_record_events (plugin_slug,user_id,record_key,action) VALUES (?,?,?,'save')").run(req.params.slug,req.user.id,req.params.key);
+    res.json({ok:true});
+  });
+  app.get('/api/admin/plugin-records', auth, admin, (req,res) => {
+    const slug=String(req.query.slug||'');
+    if (!/^[a-z0-9-]{1,100}$/.test(slug)) return res.status(400).json({error:'ระบุ slug ของโปรแกรม'});
+    res.json(db.prepare('SELECT r.plugin_slug,r.user_id,u.name,u.email,r.record_key,r.payload,r.updated_at FROM plugin_records r JOIN users u ON u.id=r.user_id WHERE r.plugin_slug=? ORDER BY r.updated_at DESC LIMIT 200').all(slug)
+      .map((row)=>({...row,payload:JSON.parse(row.payload)})));
+  });
   app.get('/plugins/:slug/demo', (req,res,next) => req.path.endsWith('/') ? next() : res.redirect(`/plugins/${req.params.slug}/demo/`), pluginAsset('demo'));
   app.get('/plugins/:slug/demo/*', pluginAsset('demo'));
   app.get('/plugins/:slug/app', auth, pluginAccess, (req,res,next) => req.path.endsWith('/') ? next() : res.redirect(`/plugins/${req.params.slug}/app/`), pluginAsset('app'));
@@ -375,13 +515,22 @@ export function createApp(options = {}) {
   });
 
   app.get('/api/admin/plugins',auth,admin,(req,res)=>res.json(db.prepare('SELECT id,slug,name,version,status,manifest,installed_at FROM plugins ORDER BY id DESC').all().map((row)=>{try{return{...row,manifest:JSON.parse(row.manifest)}}catch{return{...row,manifest:null}}})));
+  app.get('/api/admin/customer-price-tiers', auth, admin, (_req, res) => res.json(getCustomerPriceTiers()));
+  app.put('/api/admin/customer-price-tiers', auth, admin, csrf, (req, res) => {
+    const tiers = sanitizeTiers(req.body.tiers);
+    if (!tiers) return res.status(400).json({ error: 'ระดับราคาลูกค้าไม่ถูกต้อง (1-6 ระดับ ชื่อและรหัสต้องไม่ซ้ำ ราคาเป็นจำนวนเต็มตั้งแต่ 0 บาท)' });
+    if (tiers.some((tier) => tier.offline)) return res.status(400).json({ error: 'ระดับราคาส่วนกลางยังไม่รองรับตัวเลือกไฟล์ติดตั้ง ให้ตั้งไฟล์ดาวน์โหลดแยกในระบบงานหลังอัปโหลด' });
+    db.prepare("INSERT INTO settings (key,value) VALUES ('customer_price_tiers',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(tiers));
+    audit(req.user.id, 'update_customer_price_tiers', 'settings', 'customer_price_tiers', { count: tiers.length });
+    res.json(tiers);
+  });
   app.post('/api/admin/plugins',auth,admin,csrf,(req,res)=>{
     let manifest; let archiveEntries = null; let archiveBuffer = null;
     try {
       if (req.body.archive) {
         const raw = String(req.body.archive).replace(/^data:application\/(zip|x-zip-compressed);base64,/, '');
         const buffer = Buffer.from(raw, 'base64'); archiveBuffer = buffer;
-        if (buffer.length > 10 * 1024 * 1024) return res.status(413).json({error:'ไฟล์ปลั๊กอินต้องไม่เกิน 10MB'});
+        if (buffer.length > 20 * 1024 * 1024) return res.status(413).json({error:'ไฟล์ปลั๊กอินต้องไม่เกิน 20MB'});
         const zip = new AdmZip(buffer); const seen = new Set(); let total = 0;
         archiveEntries = zip.getEntries();
         for (const entry of archiveEntries) {
@@ -389,17 +538,34 @@ export function createApp(options = {}) {
           if (!name || name.startsWith('/') || name.includes('\\') || name.split('/').includes('..') || seen.has(name)) return res.status(400).json({error:'โครงสร้าง ZIP ไม่ปลอดภัย'});
           seen.add(name); total += Number(entry.header.size || 0);
         }
-        if (total > 20 * 1024 * 1024) return res.status(413).json({error:'ขนาดไฟล์หลังแตก ZIP ต้องไม่เกิน 20MB'});
+        if (total > 60 * 1024 * 1024) return res.status(413).json({error:'ขนาดไฟล์หลังแตก ZIP ต้องไม่เกิน 60MB'});
         const manifestEntry = archiveEntries.find(entry => entry.entryName === 'manifest.json');
-        if (!manifestEntry) return res.status(400).json({error:'ไม่พบ manifest.json ที่ระดับบนสุดของ ZIP'});
-        manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
+        if (manifestEntry) manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
+        else {
+          const name=String(req.body.name||'').trim();
+          const slug=String(req.body.slug||'').trim().toLowerCase();
+          const price=Number(req.body.price||0);
+          const entry=archiveEntries.map((item)=>item.entryName).filter((path)=>path==='index.html'||path.endsWith('/index.html')).sort((a,b)=>a.length-b.length)[0];
+          if (!name || !/^[a-z0-9-]+$/.test(slug) || !entry || !Number.isInteger(price) || price<0) return res.status(400).json({error:'ZIP เดิมต้องระบุชื่อ, slug, ราคา และมี index.html'});
+          let manual=archiveEntries.map((item)=>item.entryName).find((path)=>path.toLowerCase().endsWith('.pdf'));
+          if (!manual && req.body.manual) {
+            const pdf=Buffer.from(String(req.body.manual).replace(/^data:application\/pdf;base64,/,''),'base64');
+            if (pdf.length>8*1024*1024 || pdf.subarray(0,5).toString()!=='%PDF-') return res.status(400).json({error:'คู่มือ PDF ไม่ถูกต้องหรือเกิน 8MB'});
+            zip.addFile('manual.pdf',pdf); archiveEntries=zip.getEntries(); manual='manual.pdf';
+          }
+          if (!manual) return res.status(400).json({error:'กรุณาแนบคู่มือ PDF'});
+          manifest={slug,name,version:'1.0.0',type:'html-standalone',entry,manual,description:String(req.body.description||'').slice(0,500),category:String(req.body.category||''),program:{id:slug,name,thaiName:name,price}};
+          zip.addFile('manifest.json',Buffer.from(JSON.stringify(manifest),'utf8'));
+          archiveBuffer=zip.toBuffer(); archiveEntries=new AdmZip(archiveBuffer).getEntries();
+        }
       } else manifest = typeof req.body.manifest === 'string' ? JSON.parse(req.body.manifest) : req.body.manifest;
     } catch { return res.status(400).json({error:'ไฟล์ ZIP หรือ manifest ไม่ถูกต้อง'}); }
     if(!manifest?.slug||!manifest?.name||!/^\d+\.\d+\.\d+$/.test(manifest.version||'')||!/^[a-z0-9-]+$/.test(manifest.slug))return res.status(400).json({error:'manifest ต้องมี slug, name และ version แบบ x.y.z'});
     if (req.body.category !== undefined) manifest.category = String(req.body.category || '').trim().slice(0, 30);
     if (req.body.tech !== undefined) { if (!TECHS.includes(req.body.tech)) return res.status(400).json({error:'ประเภทเทคโนโลยีไม่ถูกต้อง'}); manifest.tech = req.body.tech; }
     if (req.body.access !== undefined) { if (!ACCESS.includes(req.body.access)) return res.status(400).json({error:'ประเภทสิทธิ์ไม่ถูกต้อง'}); manifest.access = req.body.access; }
-    if (req.body.priceTiers !== undefined) { const tiers = sanitizeTiers(req.body.priceTiers); if (!tiers) return res.status(400).json({error:'ระดับราคาไม่ถูกต้อง'}); manifest.priceTiers = tiers; }
+    if (req.body.priceTierIds !== undefined) { const tiers = tiersFromIds(req.body.priceTierIds); if (!tiers) return res.status(400).json({error:'ไม่พบระดับราคาลูกค้าที่เลือก'}); manifest.priceTiers = tiers; manifest.priceTierSource = 'customer-library'; }
+    else if (req.body.priceTiers !== undefined) { const tiers = sanitizeTiers(req.body.priceTiers); if (!tiers) return res.status(400).json({error:'ระดับราคาไม่ถูกต้อง'}); manifest.priceTiers = tiers; }
     else if (manifest.priceTiers !== undefined) { const tiers = sanitizeTiers(manifest.priceTiers); if (!tiers) return res.status(400).json({error:'priceTiers ใน manifest ไม่ถูกต้อง'}); manifest.priceTiers = tiers; }
     if (manifest.delivery !== undefined && !['online','offline','both'].includes(manifest.delivery)) return res.status(400).json({error:'delivery ต้องเป็น online, offline หรือ both'});
     if (['html-standalone','offline-installer'].includes(manifest.type)) {
@@ -420,7 +586,7 @@ export function createApp(options = {}) {
       for (const entry of archiveEntries) { const output=resolve(target,entry.entryName); if(!output.startsWith(`${target}/`))return res.status(400).json({error:'ตำแหน่งไฟล์ไม่ปลอดภัย'}); if(entry.isDirectory)mkdirSync(output,{recursive:true});else{mkdirSync(dirname(output),{recursive:true});writeFileSync(output,entry.getData(),{mode:0o644});} }
     }
     const previous = db.prepare('SELECT manifest FROM plugins WHERE slug=?').get(manifest.slug);
-    if (previous) { try { const old = JSON.parse(previous.manifest); if (!manifest.offline && old.offline) manifest.offline = old.offline; if (req.body.priceTiers === undefined && manifest.priceTiers === undefined && old.priceTiers) manifest.priceTiers = old.priceTiers; if (req.body.category === undefined && !manifest.category && old.category) manifest.category = old.category; if (req.body.tech === undefined && !manifest.tech && old.tech) manifest.tech = old.tech; if (req.body.access === undefined && !manifest.access && old.access) manifest.access = old.access; } catch { /* keep new manifest */ } }
+    if (previous) { try { const old = JSON.parse(previous.manifest); if (!manifest.offline && old.offline) manifest.offline = old.offline; if (req.body.priceTierIds === undefined && req.body.priceTiers === undefined && manifest.priceTiers === undefined && old.priceTiers) manifest.priceTiers = old.priceTiers; if (req.body.category === undefined && !manifest.category && old.category) manifest.category = old.category; if (req.body.tech === undefined && !manifest.tech && old.tech) manifest.tech = old.tech; if (req.body.access === undefined && !manifest.access && old.access) manifest.access = old.access; } catch { /* keep new manifest */ } }
     if (manifest.program) manifest.program.price = minPrice(manifest);
     db.prepare(`INSERT INTO plugins (slug,name,version,status,manifest) VALUES (?,?,?,'inactive',?) ON CONFLICT(slug) DO UPDATE SET name=excluded.name,version=excluded.version,manifest=excluded.manifest`).run(manifest.slug,manifest.name,manifest.version,JSON.stringify(manifest));
     if (['html-standalone','offline-installer'].includes(manifest.type)) db.prepare('INSERT INTO programs (id,name,thai_name,price,active) VALUES (?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET name=excluded.name,thai_name=excluded.thai_name,price=excluded.price').run(manifest.program.id,manifest.program.name,manifest.program.thaiName,Number(manifest.program.price));
@@ -457,11 +623,12 @@ export function createApp(options = {}) {
     }
     if (req.body.tech !== undefined) { if (!TECHS.includes(req.body.tech)) return res.status(400).json({ error: 'ประเภทเทคโนโลยีไม่ถูกต้อง' }); manifest.tech = req.body.tech; }
     if (req.body.access !== undefined) { if (!ACCESS.includes(req.body.access)) return res.status(400).json({ error: 'ประเภทสิทธิ์ไม่ถูกต้อง' }); manifest.access = req.body.access; }
-    if (req.body.priceTiers !== undefined) {
-      const tiers = sanitizeTiers(req.body.priceTiers);
+    if (req.body.priceTierIds !== undefined || req.body.priceTiers !== undefined) {
+      const tiers = req.body.priceTierIds !== undefined ? tiersFromIds(req.body.priceTierIds) : sanitizeTiers(req.body.priceTiers);
       if (!tiers) return res.status(400).json({ error: 'ระดับราคาไม่ถูกต้อง (1-6 ระดับ, ชื่อและราคาเป็นจำนวนเต็มไม่ติดลบ)' });
       if (tiers.some((t) => t.offline) && !manifest.offline) return res.status(400).json({ error: 'ต้องอัปโหลดไฟล์ติดตั้งออฟไลน์ก่อนจึงจะเปิดสิทธิ์ดาวน์โหลดในระดับราคาได้' });
       manifest.priceTiers = tiers;
+      if (req.body.priceTierIds !== undefined) manifest.priceTierSource = 'customer-library';
       if (manifest.program) { manifest.program.price = minPrice(manifest); db.prepare('UPDATE programs SET price=? WHERE id=?').run(manifest.program.price, manifest.program.id); }
     }
     db.prepare('UPDATE plugins SET manifest=? WHERE id=?').run(JSON.stringify(manifest), row.id);

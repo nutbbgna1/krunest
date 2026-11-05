@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Plus, Tags, Trash2, Upload } from 'lucide-react';
 import { api } from '../../lib/api';
-import { ACCESS_LABELS, PluginAccess, PluginCategory, PluginTech, PriceTier, TECH_LABELS } from '../../types';
+import { ACCESS_LABELS, CustomerPriceTier, PluginAccess, PluginCategory, PluginTech, PriceTier, TECH_LABELS } from '../../types';
 
 type Act = (task: () => Promise<unknown>, ok: string) => void;
 
-const blankTier = (index: number): PriceTier => ({ id: `tier-${index + 1}`, name: '', price: 0, description: '', offline: false, durationDays: null });
+export const blankTier = (index: number): PriceTier => ({ id: `tier-${index + 1}`, name: '', price: 0, description: '', offline: false, durationDays: null });
 const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30);
 
 // Rows of price tiers (name, price, description, offline installer included, duration). Used when uploading and when editing later.
@@ -26,7 +26,16 @@ export function TierEditor({ tiers, onChange, canOffline }: { tiers: PriceTier[]
   </div>;
 }
 
-const withIds = (tiers: PriceTier[]) => tiers.map((t, i) => ({ ...t, id: /^[a-z0-9-]{1,20}$/.test(t.id) ? t.id : slug(t.name).slice(0, 20) || `tier-${i + 1}` }));
+export const withIds = (tiers: PriceTier[]) => tiers.map((t, i) => ({ ...t, id: /^[a-z0-9-]{1,20}$/.test(t.id) ? t.id : slug(t.name).slice(0, 20) || `tier-${i + 1}` }));
+
+function TierPicker({ tiers, selected, onChange }: { tiers: CustomerPriceTier[]; selected: string[]; onChange: (ids: string[]) => void }) {
+  const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]);
+  if (!tiers.length) return <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">ยังไม่มีระดับราคาลูกค้า กรุณาสร้างในเมนู “ระดับราคาลูกค้า” ก่อน</div>;
+  return <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{tiers.map((tier) => <label key={tier.id} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${selected.includes(tier.id) ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+    <input type="checkbox" checked={selected.includes(tier.id)} onChange={() => toggle(tier.id)} className="mt-1"/>
+    <span><span className="block font-bold text-slate-800">{tier.name} · ฿{tier.price.toLocaleString()}</span><span className="mt-0.5 block text-[11px] text-slate-500">{tier.description || (tier.durationDays ? `ใช้งาน ${tier.durationDays} วัน` : 'ใช้งานได้ตลอดชีพ')}</span></span>
+  </label>)}</div>;
+}
 
 export function TechAccessSelects({ tech, access, onTech, onAccess }: { tech: string; access: string; onTech: (v: PluginTech | '') => void; onAccess: (v: PluginAccess | '') => void }) {
   return <>
@@ -42,40 +51,46 @@ export function CategorySelect({ value, categories, onChange }: { value: string;
 }
 
 // Edit category + price tiers of an already installed plugin.
-export function PluginMeta({ plugin, categories, busy, act }: { plugin: any; categories: PluginCategory[]; busy: boolean; act: Act }) {
+export function PluginMeta({ plugin, categories, customerTiers, busy, act }: { plugin: any; categories: PluginCategory[]; customerTiers: CustomerPriceTier[]; busy: boolean; act: Act }) {
   const manifest = plugin.manifest;
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState<string>(manifest?.category || '');
   const [tech, setTech] = useState<string>(manifest?.tech || '');
   const [access, setAccess] = useState<string>(manifest?.access || '');
-  const [tiers, setTiers] = useState<PriceTier[]>(manifest?.priceTiers?.length ? manifest.priceTiers : [{ ...blankTier(0), id: 'standard', name: 'มาตรฐาน', price: Number(manifest?.program?.price || 0), offline: Boolean(manifest?.offline) }]);
+  const [selectedTierIds, setSelectedTierIds] = useState<string[]>(() => (manifest?.priceTiers || []).map((tier: PriceTier) => tier.id).filter((id: string) => customerTiers.some((tier) => tier.id === id)));
   if (!manifest?.program) return null;
-  const summary = (manifest.priceTiers?.length ? manifest.priceTiers : tiers).map((t: PriceTier) => `${t.name} ฿${t.price.toLocaleString()}`).join(' · ');
+  const summary = (manifest.priceTiers?.length ? manifest.priceTiers : [{ name: 'มาตรฐาน', price: Number(manifest?.program?.price || 0) }]).map((t: PriceTier) => `${t.name} ฿${t.price.toLocaleString()}`).join(' · ');
   return <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
-    <div className="flex items-center justify-between gap-2"><span className="font-bold text-slate-700">หมวด: {categories.find((c) => c.id === manifest.category)?.label || manifest.category || 'ไม่ระบุ'}</span><button onClick={() => setOpen(!open)} className="font-bold text-blue-700">{open ? 'ปิด' : 'แก้ราคา / หมวดหมู่'}</button></div>
+    <div className="flex items-center justify-between gap-2"><span className="font-bold text-slate-700">หมวด: {categories.find((c) => c.id === manifest.category)?.label || manifest.category || 'ไม่ระบุ'}</span><button onClick={() => setOpen(!open)} className="font-bold text-blue-700">{open ? 'ปิด' : 'ตั้งค่าระบบงาน'}</button></div>
     <div className="mt-1 text-slate-500">{summary}</div>
-    {open && <div className="mt-3 space-y-3"><div className="flex flex-wrap gap-2"><CategorySelect value={category} categories={categories} onChange={setCategory}/><TechAccessSelects tech={tech} access={access} onTech={setTech} onAccess={setAccess}/></div><TierEditor tiers={tiers} onChange={setTiers} canOffline={Boolean(manifest.offline)}/>
-      <button disabled={busy} onClick={() => act(() => api(`/admin/plugins/${plugin.id}/meta`, { method: 'PATCH', body: { category, ...(tech ? { tech } : {}), ...(access ? { access } : {}), priceTiers: withIds(tiers) } }), 'บันทึกราคาและหมวดหมู่แล้ว')} className="primary-button w-full py-2 text-xs">บันทึก</button></div>}
+    {open && <div className="mt-3 space-y-3"><div className="flex flex-wrap gap-2"><CategorySelect value={category} categories={categories} onChange={setCategory}/><TechAccessSelects tech={tech} access={access} onTech={setTech} onAccess={setAccess}/></div><div><div className="mb-2 font-bold text-slate-700">เลือกระดับราคาลูกค้า</div><TierPicker tiers={customerTiers} selected={selectedTierIds} onChange={setSelectedTierIds}/></div>
+      <button disabled={busy || selectedTierIds.length === 0} onClick={() => act(() => api(`/admin/plugins/${plugin.id}/meta`, { method: 'PATCH', body: { category, ...(tech ? { tech } : {}), ...(access ? { access } : {}), priceTierIds: selectedTierIds } }), 'บันทึกการตั้งค่าระบบงานแล้ว')} className="primary-button w-full py-2 text-xs disabled:opacity-50">บันทึก</button></div>}
   </div>;
 }
 
 // Install form: ZIP + optional category and price tiers set at upload time.
-export function UploadForm({ categories, busy, act, onError }: { categories: PluginCategory[]; busy: boolean; act: Act; onError: (message: string) => void }) {
+export function UploadForm({ categories, customerTiers, busy, act, onError }: { categories: PluginCategory[]; customerTiers: CustomerPriceTier[]; busy: boolean; act: Act; onError: (message: string) => void }) {
+  const [legacy, setLegacy] = useState(false);
   const [category, setCategory] = useState('');
   const [tech, setTech] = useState('');
   const [access, setAccess] = useState('');
-  const [custom, setCustom] = useState(false);
-  const [tiers, setTiers] = useState<PriceTier[]>([{ ...blankTier(0), id: 'standard', name: 'มาตรฐาน' }]);
+  const [selectedTierIds, setSelectedTierIds] = useState<string[]>([]);
   return <form onSubmit={async (e) => {
     e.preventDefault(); const form = e.currentTarget; const file = new FormData(form).get('archive') as File;
     if (!file?.size) { onError('กรุณาเลือกไฟล์ Plugin ZIP'); return; }
-    const archive = await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(r.error); r.readAsDataURL(file); });
-    act(() => api('/admin/plugins', { method: 'POST', body: { archive, ...(category ? { category } : {}), ...(tech ? { tech } : {}), ...(access ? { access } : {}), ...(custom ? { priceTiers: withIds(tiers) } : {}) } }), 'ตรวจสอบและติดตั้งปลั๊กอินแล้ว'); form.reset();
+    if (!selectedTierIds.length) { onError('กรุณาเลือกระดับราคาลูกค้าอย่างน้อย 1 ระดับ'); return; }
+    const read = (input: File) => new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(r.error); r.readAsDataURL(input); });
+    const archive = await read(file);
+    const fields = new FormData(form);
+    const manualFile = fields.get('manual') as File;
+    const manual = legacy && manualFile?.size ? await read(manualFile) : undefined;
+    act(() => api('/admin/plugins', { method: 'POST', body: { archive, ...(legacy ? { name: String(fields.get('name')||''), slug: String(fields.get('slug')||''), description: String(fields.get('description')||''), price: Number(fields.get('price')||0), ...(manual ? { manual } : {}) } : {}), ...(category ? { category } : {}), ...(tech ? { tech } : {}), ...(access ? { access } : {}), priceTierIds: selectedTierIds } }), 'ตรวจสอบและติดตั้งปลั๊กอินแล้ว'); form.reset();
   }} className="space-y-3">
-    <div className="flex flex-wrap items-center gap-3"><input name="archive" required type="file" accept=".zip,application/zip" className="text-xs"/><button disabled={busy} className="primary-button flex gap-2"><Upload className="h-4 w-4"/>ตรวจสอบและติดตั้ง</button><span className="text-xs text-slate-500">ต้องมี manifest.json · ZIP ไม่เกิน 10MB · หลังแตกไม่เกิน 20MB</span></div>
-    <div className="flex flex-wrap items-center gap-3 text-xs"><span className="font-bold text-slate-600">หมวดหมู่</span><CategorySelect value={category} categories={categories} onChange={setCategory}/><TechAccessSelects tech={tech} access={access} onTech={setTech} onAccess={setAccess}/>
-      <label className="flex items-center gap-1.5 font-bold text-slate-600"><input type="checkbox" checked={custom} onChange={(e) => setCustom(e.target.checked)}/>กำหนดระดับราคาเอง (ไม่เลือก = ใช้ราคาใน manifest)</label></div>
-    {custom && <TierEditor tiers={tiers} onChange={setTiers} canOffline={false}/>}
+    <div className="flex flex-wrap items-center gap-3"><input name="archive" required type="file" accept=".zip,application/zip" className="text-xs"/><button disabled={busy} className="primary-button flex gap-2"><Upload className="h-4 w-4"/>ตรวจสอบและติดตั้ง</button><span className="text-xs text-slate-500">ZIP ไม่เกิน 20MB · หลังแตกไม่เกิน 60MB</span></div>
+    <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={legacy} onChange={(e)=>setLegacy(e.target.checked)}/>ZIP เดิมที่ไม่มี manifest.json</label>
+    {legacy && <div className="grid gap-2 md:grid-cols-2"><input name="name" required placeholder="ชื่อระบบงาน" className="form-field mt-0"/><input name="slug" required pattern="[a-z0-9-]+" placeholder="slug เช่น html-qr-attendance" className="form-field mt-0"/><input name="price" type="number" min="0" defaultValue="0" aria-label="ราคา" className="form-field mt-0"/><label className="text-xs">คู่มือ PDF <input name="manual" type="file" accept=".pdf,application/pdf" className="mt-1 block"/></label><input name="description" placeholder="คำอธิบายสั้น" className="form-field mt-0 md:col-span-2"/></div>}
+    <div className="flex flex-wrap items-center gap-3 text-xs"><span className="font-bold text-slate-600">หมวดหมู่</span><CategorySelect value={category} categories={categories} onChange={setCategory}/><TechAccessSelects tech={tech} access={access} onTech={setTech} onAccess={setAccess}/></div>
+    <div><div className="mb-2 text-xs font-bold text-slate-700">เลือกระดับราคาที่จะให้ลูกค้าเห็น</div><TierPicker tiers={customerTiers} selected={selectedTierIds} onChange={setSelectedTierIds}/></div>
   </form>;
 }
 

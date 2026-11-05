@@ -5,7 +5,9 @@ const TABLES = [
   ['login_attempts', 'key'], ['subscriptions', 'id'], ['entitlements', 'user_id,program_id'],
   ['orders', 'id'], ['payment_slips', 'id'], ['receipts', 'id'], ['teams', 'id'],
   ['team_members', 'team_id,user_id'], ['team_invites', 'token'], ['notifications', 'id'],
-  ['announcements', 'id'], ['email_queue', 'id'], ['plugins', 'id'], ['audit_logs', 'id'], ['settings', 'key'],
+  ['announcements', 'id'], ['email_queue', 'id'], ['plugins', 'id'],
+  ['plugin_records', 'plugin_slug,user_id,record_key'], ['plugin_record_events', 'id'],
+  ['audit_logs', 'id'], ['settings', 'key'],
 ];
 
 export async function syncDatabaseToSupabase(db) {

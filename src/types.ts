@@ -67,6 +67,8 @@ export interface PriceTier {
   durationDays: number | null;
 }
 
+export type CustomerPriceTier = PriceTier;
+
 export interface PluginCategory {
   id: string;
   label: string;

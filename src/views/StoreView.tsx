@@ -8,6 +8,7 @@ import { StoreStatusBar } from '../components/store/StoreStatusBar';
 import { HeroSection } from '../components/store/HeroSection';
 import { HowToOrderSection } from '../components/store/HowToOrderSection';
 import { HtmlPluginCatalog } from '../components/store/HtmlPluginCatalog';
+import { MembershipSection } from '../components/store/MembershipSection';
 
 interface StoreViewProps {
   memberTier: MemberTier;
@@ -36,6 +37,7 @@ export function StoreView({
       />
       <HeroSection />
       <HtmlPluginCatalog unlockedProgramIds={unlockedProgramIds} onOrder={onOrder} />
+      <MembershipSection memberTier={memberTier} onOrder={onOrder} />
       <HowToOrderSection />
     </main>
   );

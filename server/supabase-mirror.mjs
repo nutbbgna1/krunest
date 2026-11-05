@@ -13,7 +13,8 @@ export const MIRROR_TABLES = [
   ['entitlements', ['user_id', 'program_id']], ['orders', ['id']], ['payment_slips', ['id']],
   ['receipts', ['id']], ['teams', ['id']], ['team_members', ['team_id', 'user_id']],
   ['team_invites', ['token']], ['notifications', ['id']], ['announcements', ['id']],
-  ['email_queue', ['id']], ['plugins', ['id']], ['audit_logs', ['id']], ['settings', ['key']],
+  ['email_queue', ['id']], ['plugins', ['id']], ['plugin_records', ['plugin_slug', 'user_id', 'record_key']],
+  ['plugin_record_events', ['id']], ['audit_logs', ['id']], ['settings', ['key']],
 ];
 const PK = new Map(MIRROR_TABLES);
 const WRITE_RE = /^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+["`]?(\w+)/i;
