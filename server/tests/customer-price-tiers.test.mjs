@@ -50,6 +50,23 @@ test('customer price tiers are managed separately and selected during plugin upl
     assert.equal(JSON.parse(db.prepare("SELECT manifest FROM plugins WHERE slug='tier-app'").get().manifest).priceTiers[0].price, 99);
     assert.equal((await admin(`/api/admin/plugins/${installed.id}/meta`, 'PATCH', { priceTierIds: ['basic'] })).status, 200);
     assert.equal(JSON.parse(db.prepare("SELECT manifest FROM plugins WHERE slug='tier-app'").get().manifest).priceTiers[0].price, 149);
+    assert.equal((await admin(`/api/admin/plugins/${installed.id}/meta`, 'PATCH', { access: 'go' })).status, 200);
+    const memberManifest = JSON.parse(db.prepare("SELECT manifest FROM plugins WHERE slug='tier-app'").get().manifest);
+    assert.equal(memberManifest.access, 'go');
+    assert.equal(memberManifest.program.price, 0);
+    assert.equal(memberManifest.priceTiers, undefined);
+
+    const memberZip = new AdmZip();
+    const memberPlugin = { ...manifest, slug: 'member-app', name: 'Member App', program: { id: 'member-app', name: 'Member App', thaiName: 'ระบบสมาชิก', price: 999 } };
+    memberZip.addFile('manifest.json', Buffer.from(JSON.stringify(memberPlugin)));
+    memberZip.addFile('app/index.html', Buffer.from('<!doctype html><html><head></head><body>Member</body></html>'));
+    memberZip.addFile('app/manual.pdf', Buffer.from('%PDF-1.4\n'));
+    const memberArchive = memberZip.toBuffer().toString('base64');
+    assert.equal((await admin('/api/admin/plugins', 'POST', { archive: memberArchive, access: 'go' })).status, 201);
+    const uploadedMember = JSON.parse(db.prepare("SELECT manifest FROM plugins WHERE slug='member-app'").get().manifest);
+    assert.equal(uploadedMember.access, 'go');
+    assert.equal(uploadedMember.program.price, 0);
+    assert.equal(uploadedMember.priceTiers, undefined);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     db.close(); rmSync(pluginRoot, { recursive: true, force: true });

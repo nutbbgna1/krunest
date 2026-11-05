@@ -59,12 +59,14 @@ export function PluginMeta({ plugin, categories, customerTiers, busy, act }: { p
   const [access, setAccess] = useState<string>(manifest?.access || '');
   const [selectedTierIds, setSelectedTierIds] = useState<string[]>(() => (manifest?.priceTiers || []).map((tier: PriceTier) => tier.id).filter((id: string) => customerTiers.some((tier) => tier.id === id)));
   if (!manifest?.program) return null;
-  const summary = (manifest.priceTiers?.length ? manifest.priceTiers : [{ name: 'มาตรฐาน', price: Number(manifest?.program?.price || 0) }]).map((t: PriceTier) => `${t.name} ฿${t.price.toLocaleString()}`).join(' · ');
+  const separatePurchase = access === 'paid';
+  const membershipAccess = ['free','go','pro','max'].includes(access);
+  const summary = membershipAccess ? `ใช้สิทธิ์สมาชิก ${access.toUpperCase()}` : (manifest.priceTiers?.length ? manifest.priceTiers : [{ name: 'มาตรฐาน', price: Number(manifest?.program?.price || 0) }]).map((t: PriceTier) => `${t.name} ฿${t.price.toLocaleString()}`).join(' · ');
   return <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
     <div className="flex items-center justify-between gap-2"><span className="font-bold text-slate-700">หมวด: {categories.find((c) => c.id === manifest.category)?.label || manifest.category || 'ไม่ระบุ'}</span><button onClick={() => setOpen(!open)} className="font-bold text-blue-700">{open ? 'ปิด' : 'ตั้งค่าระบบงาน'}</button></div>
     <div className="mt-1 text-slate-500">{summary}</div>
-    {open && <div className="mt-3 space-y-3"><div className="flex flex-wrap gap-2"><CategorySelect value={category} categories={categories} onChange={setCategory}/><TechAccessSelects tech={tech} access={access} onTech={setTech} onAccess={setAccess}/></div><div><div className="mb-2 font-bold text-slate-700">เลือกระดับราคาลูกค้า</div><TierPicker tiers={customerTiers} selected={selectedTierIds} onChange={setSelectedTierIds}/></div>
-      <button disabled={busy || selectedTierIds.length === 0} onClick={() => act(() => api(`/admin/plugins/${plugin.id}/meta`, { method: 'PATCH', body: { category, ...(tech ? { tech } : {}), ...(access ? { access } : {}), priceTierIds: selectedTierIds } }), 'บันทึกการตั้งค่าระบบงานแล้ว')} className="primary-button w-full py-2 text-xs disabled:opacity-50">บันทึก</button></div>}
+    {open && <div className="mt-3 space-y-3"><div className="flex flex-wrap gap-2"><CategorySelect value={category} categories={categories} onChange={setCategory}/><TechAccessSelects tech={tech} access={access} onTech={setTech} onAccess={setAccess}/></div>{separatePurchase?<div><div className="mb-2 font-bold text-slate-700">เลือกราคาสำหรับระบบที่ซื้อแยก</div><TierPicker tiers={customerTiers} selected={selectedTierIds} onChange={setSelectedTierIds}/></div>:<AccessPricingNote access={access}/>}
+      <button disabled={busy || (separatePurchase && selectedTierIds.length === 0)} onClick={() => act(() => api(`/admin/plugins/${plugin.id}/meta`, { method: 'PATCH', body: { category, ...(tech ? { tech } : {}), ...(access ? { access } : {}), ...(separatePurchase ? { priceTierIds: selectedTierIds } : {}) } }), 'บันทึกการตั้งค่าระบบงานแล้ว')} className="primary-button w-full py-2 text-xs disabled:opacity-50">บันทึก</button></div>}
   </div>;
 }
 
@@ -77,16 +79,17 @@ export function UploadForm({ categories, customerTiers, busy, act, onError }: { 
   const [tech, setTech] = useState('');
   const [access, setAccess] = useState('');
   const [selectedTierIds, setSelectedTierIds] = useState<string[]>([]);
+  const separatePurchase = access === 'paid';
   return <form onSubmit={async (e) => {
     e.preventDefault(); const form = e.currentTarget; const file = new FormData(form).get('archive') as File;
     if (!file?.size) { onError('กรุณาเลือกไฟล์ Plugin ZIP'); return; }
-    if (!selectedTierIds.length) { onError('กรุณาเลือกระดับราคาลูกค้าอย่างน้อย 1 ระดับ'); return; }
+    if (separatePurchase && !selectedTierIds.length) { onError('ระบบซื้อแยกต้องเลือกราคาอย่างน้อย 1 ระดับ'); return; }
     const read = (input: File) => new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(r.error); r.readAsDataURL(input); });
     const archive = await read(file);
     const fields = new FormData(form);
     const manualFile = fields.get('manual') as File;
     const manual = legacy && manualFile?.size ? await read(manualFile) : undefined;
-    act(() => api('/admin/plugins', { method: 'POST', body: { archive, ...(legacy ? { name: String(fields.get('name')||''), slug: String(fields.get('slug')||''), description: String(fields.get('description')||''), price: Number(fields.get('price')||0), ...(manual ? { manual } : {}) } : {}), ...(category ? { category } : {}), ...(tech ? { tech } : {}), ...(access ? { access } : {}), priceTierIds: selectedTierIds } }), 'ตรวจสอบและติดตั้งปลั๊กอินแล้ว'); form.reset(); setArchiveName('');
+    act(() => api('/admin/plugins', { method: 'POST', body: { archive, ...(legacy ? { name: String(fields.get('name')||''), slug: String(fields.get('slug')||''), description: String(fields.get('description')||''), price: Number(fields.get('price')||0), ...(manual ? { manual } : {}) } : {}), ...(category ? { category } : {}), ...(tech ? { tech } : {}), ...(access ? { access } : {}), ...(separatePurchase ? { priceTierIds: selectedTierIds } : {}) } }), 'ตรวจสอบและติดตั้งปลั๊กอินแล้ว'); form.reset(); setArchiveName('');
   }} className="space-y-3">
     <div className="flex flex-wrap items-center gap-3">
       <input id={archiveInputId} name="archive" required type="file" accept=".zip,application/zip" className="sr-only" onChange={(event)=>setArchiveName(event.target.files?.[0]?.name||'')}/>
@@ -98,8 +101,13 @@ export function UploadForm({ categories, customerTiers, busy, act, onError }: { 
     <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={legacy} onChange={(e)=>setLegacy(e.target.checked)}/>ZIP เดิมที่ไม่มี manifest.json</label>
     {legacy && <div className="grid gap-2 md:grid-cols-2"><input name="name" required placeholder="ชื่อระบบงาน" className="form-field mt-0"/><input name="slug" required pattern="[a-z0-9-]+" placeholder="slug เช่น html-qr-attendance" className="form-field mt-0"/><input name="price" type="number" min="0" defaultValue="0" aria-label="ราคา" className="form-field mt-0"/><label className="text-xs">คู่มือ PDF <input name="manual" type="file" accept=".pdf,application/pdf" className="mt-1 block"/></label><input name="description" placeholder="คำอธิบายสั้น" className="form-field mt-0 md:col-span-2"/></div>}
     <div className="flex flex-wrap items-center gap-3 text-xs"><span className="font-bold text-slate-600">หมวดหมู่</span><CategorySelect value={category} categories={categories} onChange={setCategory}/><TechAccessSelects tech={tech} access={access} onTech={setTech} onAccess={setAccess}/></div>
-    <div><div className="mb-2 text-xs font-bold text-slate-700">เลือกระดับราคาที่จะให้ลูกค้าเห็น</div><TierPicker tiers={customerTiers} selected={selectedTierIds} onChange={setSelectedTierIds}/></div>
+    {separatePurchase?<div><div className="mb-2 text-xs font-bold text-slate-700">เลือกราคาสำหรับระบบที่ซื้อแยก</div><TierPicker tiers={customerTiers} selected={selectedTierIds} onChange={setSelectedTierIds}/></div>:<AccessPricingNote access={access}/>}
   </form>;
+}
+
+function AccessPricingNote({access}:{access:string}){
+  const membership=['free','go','pro','max'].includes(access);
+  return <div className={`rounded-xl border p-3 text-xs ${membership?'border-emerald-200 bg-emerald-50 text-emerald-800':'border-blue-200 bg-blue-50 text-blue-800'}`}>{membership?<><b>ใช้สิทธิ์จากแพ็กเกจสมาชิก {access.toUpperCase()}</b><span className="mt-1 block">ไม่ต้องเลือกระดับราคาลูกค้า สมาชิกที่มีแพ็กเกจถึงระดับนี้จะเข้าใช้งานได้</span></>:<><b>เลือกประเภทสิทธิ์ของระบบงาน</b><span className="mt-1 block">ถ้าเป็นระบบซื้อแยก ให้เลือก “ชำระเงินแยกต่างหาก” แล้วกำหนดราคาด้านล่าง</span></>}</div>;
 }
 
 export function CategoryManager({ categories, busy, act }: { categories: PluginCategory[]; busy: boolean; act: Act }) {

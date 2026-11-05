@@ -152,6 +152,8 @@ test('offline installers: signed upload, entitlement-gated signed download, rest
   assert.equal((await admin.request(`/api/admin/plugins/${pluginId}/meta`, { method: 'PATCH', body: { tech: 'gas', access: 'pro' } })).res.status, 200);
   const retagged = (await buyer.request('/api/plugins/pos-lite')).data;
   assert.equal(retagged.tech, 'gas'); assert.equal(retagged.access, 'pro'); assert.equal(typeof retagged.popularity, 'number'); assert.ok(retagged.installedAt);
+  assert.equal(JSON.parse(db.prepare("SELECT manifest FROM plugins WHERE id=?").get(pluginId).manifest).priceTiers, undefined, 'subscription access must not retain separate-sale prices');
+  assert.equal((await admin.request(`/api/admin/plugins/${pluginId}/meta`, { method: 'PATCH', body: { access: 'paid', priceTiers: tiers } })).res.status, 200);
 
   db.prepare("INSERT INTO users (email,password_hash,name,role,email_verified) VALUES ('b2@x.test',?,'B2','member',1)").run(hash('Buyer2@12345678'));
   const b2 = session(); await b2.request('/api/auth/login', { method: 'POST', body: { email: 'b2@x.test', password: 'Buyer2@12345678' } }); await b2.request('/api/me');

@@ -609,7 +609,8 @@ export function createApp(options = {}) {
       for (const entry of archiveEntries) { const output=resolve(target,entry.entryName); if(!output.startsWith(`${target}/`))return res.status(400).json({error:'ตำแหน่งไฟล์ไม่ปลอดภัย'}); if(entry.isDirectory)mkdirSync(output,{recursive:true});else{mkdirSync(dirname(output),{recursive:true});writeFileSync(output,entry.getData(),{mode:0o644});} }
     }
     const previous = db.prepare('SELECT manifest FROM plugins WHERE slug=?').get(manifest.slug);
-    if (previous) { try { const old = JSON.parse(previous.manifest); if (!manifest.offline && old.offline) manifest.offline = old.offline; if (req.body.priceTierIds === undefined && req.body.priceTiers === undefined && manifest.priceTiers === undefined && old.priceTiers) manifest.priceTiers = old.priceTiers; if (req.body.category === undefined && !manifest.category && old.category) manifest.category = old.category; if (req.body.tech === undefined && !manifest.tech && old.tech) manifest.tech = old.tech; if (req.body.access === undefined && !manifest.access && old.access) manifest.access = old.access; } catch { /* keep new manifest */ } }
+    if (previous) { try { const old = JSON.parse(previous.manifest); if (!manifest.offline && old.offline) manifest.offline = old.offline; if (req.body.priceTierIds === undefined && req.body.priceTiers === undefined && manifest.priceTiers === undefined && old.priceTiers && accessOf(manifest) === 'paid') manifest.priceTiers = old.priceTiers; if (req.body.category === undefined && !manifest.category && old.category) manifest.category = old.category; if (req.body.tech === undefined && !manifest.tech && old.tech) manifest.tech = old.tech; if (req.body.access === undefined && !manifest.access && old.access) manifest.access = old.access; } catch { /* keep new manifest */ } }
+    if (Object.hasOwn(MEMBER_ACCESS_RANK, manifest.access)) { delete manifest.priceTiers; delete manifest.priceTierSource; if (manifest.program) manifest.program.price = 0; }
     if (manifest.program) manifest.program.price = minPrice(manifest);
     db.prepare(`INSERT INTO plugins (slug,name,version,status,manifest) VALUES (?,?,?,'inactive',?) ON CONFLICT(slug) DO UPDATE SET name=excluded.name,version=excluded.version,manifest=excluded.manifest`).run(manifest.slug,manifest.name,manifest.version,JSON.stringify(manifest));
     if (['html-standalone','offline-installer'].includes(manifest.type)) db.prepare('INSERT INTO programs (id,name,thai_name,price,active) VALUES (?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET name=excluded.name,thai_name=excluded.thai_name,price=excluded.price').run(manifest.program.id,manifest.program.name,manifest.program.thaiName,Number(manifest.program.price));
@@ -653,6 +654,10 @@ export function createApp(options = {}) {
       manifest.priceTiers = tiers;
       if (req.body.priceTierIds !== undefined) manifest.priceTierSource = 'customer-library';
       if (manifest.program) { manifest.program.price = minPrice(manifest); db.prepare('UPDATE programs SET price=? WHERE id=?').run(manifest.program.price, manifest.program.id); }
+    }
+    if (Object.hasOwn(MEMBER_ACCESS_RANK, manifest.access)) {
+      delete manifest.priceTiers; delete manifest.priceTierSource;
+      if (manifest.program) { manifest.program.price = 0; db.prepare('UPDATE programs SET price=0 WHERE id=?').run(manifest.program.id); }
     }
     db.prepare('UPDATE plugins SET manifest=? WHERE id=?').run(JSON.stringify(manifest), row.id);
     audit(req.user.id, 'update_plugin_meta', 'plugin', row.id, { category: manifest.category, tiers: manifest.priceTiers?.length });
