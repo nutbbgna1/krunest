@@ -13,12 +13,9 @@ export function PluginRecords({ plugins }: { plugins: { slug: string; name: stri
     try { setRows(await api<Row[]>(`/admin/plugin-records?slug=${encodeURIComponent(value)}`)); }
     catch (cause) { setError((cause as Error).message); }
   };
-  return <div className="portal-card p-5 mt-5">
-    <h3 className="font-extrabold">งานที่บันทึกในระบบ (ผู้ดูแล)</h3>
-    <p className="text-xs text-slate-500 mt-1">แสดงข้อมูลที่โปรแกรมส่งเข้า API บันทึกงานของ Krunest</p>
-    <select value={slug} onChange={(event) => load(event.target.value)} aria-label="เลือกโปรแกรมเพื่อตรวจงาน" className="form-field max-w-md mt-3">
-      <option value="">เลือกโปรแกรม</option>{plugins.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
-    </select>
+  return <section className="portal-card overflow-hidden">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-5 py-4 lg:px-6"><div><div className="text-[11px] font-black uppercase tracking-widest text-blue-600">ข้อมูลผู้ใช้งาน</div><h3 className="mt-1 font-black text-slate-900">ตรวจงานที่บันทึกในแต่ละระบบ</h3><p className="mt-1 text-xs text-slate-500">ผู้ดูแลเท่านั้นที่เห็นข้อมูลส่วนนี้ งานของผู้ใช้แต่ละคนจะแยกจากกัน</p></div><select value={slug} onChange={(event) => load(event.target.value)} aria-label="เลือกโปรแกรมเพื่อตรวจงาน" className="form-field mt-0 w-full sm:w-72"><option value="">เลือกโปรแกรมเพื่อตรวจงาน</option>{plugins.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}</select></div>
+    <div className="p-5 lg:p-6">
     {error && <p className="text-sm text-rose-700 mt-3">{error}</p>}
     {slug && <div className="mt-4 space-y-2">{rows.length ? rows.map((row) =>
       <details key={`${row.user_id}:${row.record_key}`} className="rounded-xl border border-slate-200 p-3 text-sm">
@@ -26,5 +23,7 @@ export function PluginRecords({ plugins }: { plugins: { slug: string; name: stri
         <p className="text-xs text-slate-500 mt-2">{row.email}</p>
         <pre className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-3 text-xs">{JSON.stringify(row.payload, null, 2)}</pre>
       </details>) : <p className="text-sm text-slate-500">ยังไม่มีงานที่บันทึกผ่านระบบนี้</p>}</div>}
-  </div>;
+    {!slug && <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center text-sm text-slate-500">เลือกโปรแกรมด้านบนเพื่อดูงานที่ผู้ใช้เคยบันทึกไว้</div>}
+    </div>
+  </section>;
 }
