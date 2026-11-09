@@ -14,7 +14,8 @@ const entryRoot = manifest.entry.includes('/') ? manifest.entry.slice(0, manifes
 const screenshot = manifest.screenshots?.[0];
 const coverPath = screenshot ? [entryRoot, screenshot].filter(Boolean).join('/') : null;
 if (!coverPath || !zip.getEntry(coverPath)) throw new Error('primary cover not found in archive');
-const cover = buildPluginCover(manifest, zip.readAsText(coverPath), manifest.category);
+const generatedArt = readFileSync(new URL(`../public/plugin-cover-art/${manifest.slug}.webp`, import.meta.url));
+const cover = buildPluginCover(manifest, zip.readAsText(coverPath), manifest.category, `data:image/webp;base64,${generatedArt.toString('base64')}`);
 if (!cover) throw new Error('embedded screenshot not found in primary cover');
 writeFileSync(outputPath, cover, 'utf8');
 console.log(outputPath);

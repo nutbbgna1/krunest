@@ -35,7 +35,7 @@ export function extractCoverScreenshot(sourceSvg) {
   return match?.[1] || null;
 }
 
-export function buildPluginCover(manifest, sourceSvg, categoryLabel = '') {
+export function buildPluginCover(manifest, sourceSvg, categoryLabel = '', generatedArt = '') {
   const screenshot = extractCoverScreenshot(sourceSvg);
   if (!screenshot) return null;
   const category = categoryLabel || manifest.category || 'HTML Standalone';
@@ -45,9 +45,7 @@ export function buildPluginCover(manifest, sourceSvg, categoryLabel = '') {
   const highlights = Array.isArray(manifest.highlights) ? manifest.highlights.slice(0, 3) : [];
   while (highlights.length < 3) highlights.push(['เปิดใช้งานผ่านเว็บได้ทันที', 'ข้อมูลแยกตามบัญชีผู้ใช้', 'มีคู่มือการใช้งาน PDF'][highlights.length]);
   const features = highlights.map(featureText);
-  const artUrl = /^[a-z0-9-]+$/.test(manifest.slug || '')
-    ? `/plugin-cover-art/${manifest.slug}.webp`
-    : screenshot;
+  const artUrl = generatedArt || screenshot;
 
   const cards = features.map(([heading, detail], index) => {
     const y = 414 + index * 128;

@@ -6,6 +6,7 @@ import { buildPluginCover, extractCoverScreenshot } from '../plugin-cover.mjs';
 import { describePluginVisual, mappedVisualSlugs } from '../plugin-visuals.mjs';
 
 const source = '<svg><image href="data:image/png;base64,aGVsbG8=" x="0" y="0"/></svg>';
+const generatedArt = 'data:image/webp;base64,d2VicA==';
 
 test('cover generator keeps the screenshot and safely renders plugin metadata', () => {
   const manifest = {
@@ -14,8 +15,8 @@ test('cover generator keeps the screenshot and safely renders plugin metadata', 
     highlights: ['เปิดใช้งานผ่านเว็บได้ทันที', 'ข้อมูลแยกตามบัญชีผู้ใช้', 'มีคู่มือ PDF'],
   };
   assert.equal(extractCoverScreenshot(source), 'data:image/png;base64,aGVsbG8=');
-  const cover = buildPluginCover(manifest, source, 'เกมและกิจกรรม');
-  assert.match(cover, /\/plugin-cover-art\/vs-random-picker\.webp/);
+  const cover = buildPluginCover(manifest, source, 'เกมและกิจกรรม', generatedArt);
+  assert.match(cover, /data:image\/webp;base64,d2VicA==/);
   assert.match(cover, /ระบบ &lt;ครู&gt;/);
   assert.match(cover, /ULTIMATE/);
   assert.match(cover, /#db2777/);
@@ -24,8 +25,8 @@ test('cover generator keeps the screenshot and safely renders plugin metadata', 
 
 test('Chinese worksheet gets a subject-specific worksheet illustration', () => {
   const manifest = { slug: 'vs-chinese-worksheet', name: 'โปรแกรมสร้างใบงานภาษาจีน', category: 'academic-curriculum' };
-  const cover = buildPluginCover(manifest, source, 'วิชาการและหลักสูตร');
-  assert.match(cover, /\/plugin-cover-art\/vs-chinese-worksheet\.webp/);
+  const cover = buildPluginCover(manifest, source, 'วิชาการและหลักสูตร', generatedArt);
+  assert.match(cover, /data:image\/webp;base64,d2VicA==/);
 });
 
 test('semantic visual catalog covers all 130 plugins without duplicates', () => {

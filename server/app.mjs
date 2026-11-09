@@ -465,7 +465,7 @@ export function createApp(options = {}) {
       type: manifest.type || 'extension', description: manifest.description || '',
       category: getCategories().find((c) => c.id === manifest.category)?.label || manifest.category || 'HTML Standalone', categoryId: manifest.category || '', badge: manifest.badge || 'พร้อมใช้งานบนเว็บ',
       screenshots: Array.isArray(manifest.screenshots) ? manifest.screenshots.map((path, index) => index === 0
-        ? `/api/plugins/${manifest.slug}/cover.svg?v=${encodeURIComponent(plugin.version)}&style=4` : `/plugins/${manifest.slug}/demo/${path}`) : [],
+        ? `/api/plugins/${manifest.slug}/cover.svg?v=${encodeURIComponent(plugin.version)}&style=5` : `/plugins/${manifest.slug}/demo/${path}`) : [],
       highlights: Array.isArray(manifest.highlights) ? manifest.highlights : [],
       steps: Array.isArray(manifest.steps) ? manifest.steps : [], program: manifest.program ? { ...manifest.program, price: minPrice(manifest) } : null,
       priceTiers: accessOf(manifest) === 'paid' ? tiersOf(manifest) : [], tech: techOf(manifest), access: accessOf(manifest),
@@ -521,7 +521,11 @@ export function createApp(options = {}) {
     const source = resolve(pluginRoot, plugin.slug, dirname(plugin.manifest.entry), screenshot);
     if (!source.startsWith(`${resolve(pluginRoot, plugin.slug)}/`) || !existsSync(source)) return res.status(404).send('ไม่พบรูปปก');
     const category = getCategories().find((item) => item.id === plugin.manifest.category)?.label || plugin.manifest.category || 'HTML Standalone';
-    const cover = buildPluginCover(plugin.manifest, readFileSync(source, 'utf8'), category);
+    const generatedArtPath = resolve('public', 'plugin-cover-art', `${plugin.slug}.webp`);
+    const generatedArt = existsSync(generatedArtPath)
+      ? `data:image/webp;base64,${readFileSync(generatedArtPath).toString('base64')}`
+      : '';
+    const cover = buildPluginCover(plugin.manifest, readFileSync(source, 'utf8'), category, generatedArt);
     if (!cover) return res.sendFile(source);
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=86400');
