@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { statSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { buildPluginCover, extractCoverScreenshot } from '../plugin-cover.mjs';
 import { describePluginVisual, mappedVisualSlugs } from '../plugin-visuals.mjs';
 
@@ -13,7 +15,7 @@ test('cover generator keeps the screenshot and safely renders plugin metadata', 
   };
   assert.equal(extractCoverScreenshot(source), 'data:image/png;base64,aGVsbG8=');
   const cover = buildPluginCover(manifest, source, 'เกมและกิจกรรม');
-  assert.match(cover, /data-visual-kind="game"/);
+  assert.match(cover, /\/plugin-cover-art\/vs-random-picker\.webp/);
   assert.match(cover, /ระบบ &lt;ครู&gt;/);
   assert.match(cover, /ULTIMATE/);
   assert.match(cover, /#db2777/);
@@ -23,14 +25,20 @@ test('cover generator keeps the screenshot and safely renders plugin metadata', 
 test('Chinese worksheet gets a subject-specific worksheet illustration', () => {
   const manifest = { slug: 'vs-chinese-worksheet', name: 'โปรแกรมสร้างใบงานภาษาจีน', category: 'academic-curriculum' };
   const cover = buildPluginCover(manifest, source, 'วิชาการและหลักสูตร');
-  assert.match(cover, /data-visual-kind="worksheet"/);
-  assert.match(cover, /中文 • 你好 • nǐ hǎo/);
+  assert.match(cover, /\/plugin-cover-art\/vs-chinese-worksheet\.webp/);
 });
 
 test('semantic visual catalog covers all 130 plugins without duplicates', () => {
   assert.equal(mappedVisualSlugs.length, 130);
   assert.equal(new Set(mappedVisualSlugs).size, 130);
   assert.equal(describePluginVisual({ slug: 'missing' }).mapped, false);
+});
+
+test('every mapped plugin has a production-ready generated WebP cover', () => {
+  for (const slug of mappedVisualSlugs) {
+    const stats = statSync(resolve('public/plugin-cover-art', `${slug}.webp`));
+    assert.ok(stats.size > 50_000, `${slug} cover is unexpectedly small`);
+  }
 });
 
 test('cover generator returns null when the source has no embedded screenshot', () => {
