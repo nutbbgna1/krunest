@@ -67,6 +67,37 @@ test('mirror pushes writes, removes deleted rows and restores an empty database'
   await restored.bootstrap();
   assert.equal(restored.status().mode, 'restored-from-supabase');
   assert.ok(fresh.prepare("SELECT email FROM users WHERE email='a@x.test'").get());
+  assert.equal(restored.status().verification.ok, true);
+});
+
+test('remote bootstrap replaces stale SQLite rows and refuses an empty remote', async () => {
+  const sb = fakeSupabase();
+  const source = openDatabase(':memory:');
+  source.prepare("INSERT INTO users (email,password_hash,name) VALUES ('remote@x.test','h','Remote')").run();
+  source.prepare("INSERT INTO announcements (title,message) VALUES ('remote','kept')").run();
+  const writer = createMirror(source, { client: sb, log: { error() {}, warn() {} } });
+  await writer.bootstrap({ mode: 'local' });
+  assert.equal(writer.status().mode, 'synced-from-local');
+
+  const cache = openDatabase(':memory:');
+  cache.prepare("INSERT INTO announcements (title,message) VALUES ('stale','remove me')").run();
+  cache.prepare("INSERT INTO users (email,password_hash,name) VALUES ('stale@x.test','h','Stale')").run();
+  const reader = createMirror(cache, { client: sb, log: { error() {}, warn() {} } });
+  await reader.bootstrap({ mode: 'remote' });
+  assert.equal(reader.status().mode, 'restored-from-supabase');
+  assert.equal(cache.prepare("SELECT COUNT(*) count FROM announcements WHERE title='stale'").get().count, 0);
+  assert.equal(cache.prepare("SELECT COUNT(*) count FROM users WHERE email='stale@x.test'").get().count, 0);
+  assert.ok(cache.prepare("SELECT id FROM users WHERE email='remote@x.test'").get());
+  assert.equal(reader.status().verification.ok, true);
+
+  const empty = fakeSupabase();
+  const protectedDb = openDatabase(':memory:');
+  protectedDb.prepare("INSERT INTO announcements (title,message) VALUES ('local','safe')").run();
+  const guarded = createMirror(protectedDb, { client: empty, log: { error() {}, warn() {} } });
+  await guarded.bootstrap({ mode: 'remote' });
+  assert.equal(guarded.status().mode, 'error');
+  assert.match(guarded.status().lastError, /users.*ว่าง/);
+  assert.ok(protectedDb.prepare("SELECT id FROM announcements WHERE title='local'").get());
 });
 
 test('mirror failure keeps data pending and never throws into requests', async () => {

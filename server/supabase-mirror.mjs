@@ -6,7 +6,7 @@ import { getSupabaseAdmin, isSupabaseConfigured } from './supabase.mjs';
 
 // Supabase is the system of record; the local SQLite file is the fast runtime copy.
 //  - every write to a durable table is mirrored to Supabase shortly afterwards (write-through)
-//  - on boot: an empty local database is restored from Supabase, otherwise local data is pushed up
+//  - on boot: KRUNEST_SUPABASE_BOOTSTRAP decides which copy wins (auto, remote, local)
 // Volatile tables (sessions, tokens, login_attempts) are not mirrored.
 export const MIRROR_TABLES = [
   ['programs', ['id']], ['plans', ['id']], ['users', ['id']], ['subscriptions', ['id']],
@@ -17,6 +17,8 @@ export const MIRROR_TABLES = [
   ['plugin_record_events', ['id']], ['audit_logs', ['id']], ['settings', ['key']],
 ];
 const PK = new Map(MIRROR_TABLES);
+const VERIFY_TABLES = ['users', 'programs', 'plugins', 'orders', 'settings'];
+const BOOTSTRAP_MODES = new Set(['auto', 'remote', 'local']);
 const WRITE_RE = /^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+["`]?(\w+)/i;
 const hash = (row) => crypto.createHash('sha1').update(JSON.stringify(row)).digest('hex');
 const keyOf = (row, pk) => pk.map((c) => row[c]).join('\u0001');
@@ -36,7 +38,17 @@ export function createMirror(db, { client = null, storage = null, delayMs = 2000
   const sb = () => client || getSupabaseAdmin();
   const known = new Map(MIRROR_TABLES.map(([t]) => [t, new Map()])); // table -> pk -> row hash
   const dirty = new Set();
-  const status = { enabled, mode: enabled ? 'starting' : 'disabled', lastFlushAt: null, lastError: null, pushed: 0 };
+  const configuredBootstrapMode = String(process.env.KRUNEST_SUPABASE_BOOTSTRAP || 'auto').toLowerCase();
+  const bootstrapMode = BOOTSTRAP_MODES.has(configuredBootstrapMode) ? configuredBootstrapMode : 'auto';
+  const status = {
+    enabled,
+    mode: enabled ? 'starting' : 'disabled',
+    bootstrapMode,
+    lastFlushAt: null,
+    lastError: null,
+    pushed: 0,
+    verification: null,
+  };
   let timer = null; let running = null; let again = false;
   const children = new Map(); // parent table -> child tables (cascade deletes)
   for (const [table] of MIRROR_TABLES) {
@@ -140,27 +152,61 @@ export function createMirror(db, { client = null, storage = null, delayMs = 2000
     return count || 0;
   }
 
+  async function fetchRemoteTable(table, pk) {
+    const rows = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb().from(table).select('*').order(pk[0], { ascending: true }).range(from, from + 999);
+      if (error) throw new Error(`${table}: ${error.message}`);
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    return rows;
+  }
+
   async function hydrate() {
-    db.exec('PRAGMA foreign_keys = OFF');
+    // Download the complete snapshot before touching SQLite. A network failure
+    // therefore leaves the current runtime copy intact.
+    const snapshot = new Map();
+    for (const [table, pk] of MIRROR_TABLES) snapshot.set(table, await fetchRemoteTable(table, pk));
+
+    db.exec('PRAGMA foreign_keys = OFF; BEGIN IMMEDIATE');
     try {
-      for (const [table, pk] of MIRROR_TABLES) {
+      // Make the cache an exact copy. INSERT OR REPLACE alone leaves rows that
+      // were deleted remotely, which can resurrect stale accounts and orders.
+      for (const [table] of [...MIRROR_TABLES].reverse()) db.prepare(`DELETE FROM ${table}`).run();
+      for (const [table] of MIRROR_TABLES) {
         const localColumns = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
-        for (let from = 0; ; from += 1000) {
-          const { data, error } = await sb().from(table).select('*').order(pk[0], { ascending: true }).range(from, from + 999);
-          if (error) throw new Error(`${table}: ${error.message}`);
-          for (const remote of data || []) {
-            const columns = Object.keys(remote).filter((c) => localColumns.has(c));
-            const values = columns.map((c) => normalizeRemote(remote[c]));
-            db.prepare(`INSERT OR REPLACE INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`).run(...values);
-          }
-          if (!data || data.length < 1000) break;
+        for (const remote of snapshot.get(table)) {
+          const columns = Object.keys(remote).filter((c) => localColumns.has(c));
+          const values = columns.map((c) => normalizeRemote(remote[c]));
+          db.prepare(`INSERT OR REPLACE INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`).run(...values);
         }
       }
+      // Volatile local sessions are intentionally not mirrored. Remove any that
+      // point at users which no longer exist in the authoritative snapshot.
+      db.prepare('DELETE FROM sessions WHERE user_id NOT IN (SELECT id FROM users)').run();
+      db.prepare('DELETE FROM tokens WHERE user_id NOT IN (SELECT id FROM users)').run();
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
     } finally { db.exec('PRAGMA foreign_keys = ON'); }
     for (const [table, pk] of MIRROR_TABLES) {
       const cache = known.get(table); cache.clear();
       for (const row of db.prepare(`SELECT * FROM ${table}`).all().map(toRemote)) cache.set(keyOf(row, pk), hash(row));
     }
+  }
+
+  async function verify() {
+    const local = {}; const remote = {}; const differences = {};
+    for (const table of VERIFY_TABLES) {
+      local[table] = Number(db.prepare(`SELECT COUNT(*) count FROM ${table}`).get().count);
+      remote[table] = await remoteCount(table);
+      if (local[table] !== remote[table]) differences[table] = { local: local[table], remote: remote[table] };
+    }
+    const result = { checkedAt: new Date().toISOString(), local, remote, differences, ok: Object.keys(differences).length === 0 };
+    status.verification = result;
+    return result;
   }
 
   // Restore plugin folders from Supabase Storage (plugins/<slug>.zip) when they are missing on disk.
@@ -186,17 +232,28 @@ export function createMirror(db, { client = null, storage = null, delayMs = 2000
   }
 
   // Called once at startup, before the server accepts requests.
-  async function bootstrap({ pluginRoot } = {}) {
+  async function bootstrap({ pluginRoot, mode = bootstrapMode } = {}) {
     if (!enabled) return status;
     try {
+      if (!BOOTSTRAP_MODES.has(mode)) throw new Error(`KRUNEST_SUPABASE_BOOTSTRAP ไม่ถูกต้อง: ${mode}`);
       if (storage) await storage.ensureBucket();
-      // A brand-new database only holds the seeded admin (<=1 user, no orders): treat it as empty.
+      status.bootstrapMode = mode;
       const localUsers = db.prepare('SELECT COUNT(*) c FROM users').get().c;
       const localOrders = db.prepare('SELECT COUNT(*) c FROM orders').get().c;
       const remoteUsers = await remoteCount('users');
-      if (localUsers <= 1 && localOrders === 0 && remoteUsers > localUsers) { await hydrate(); status.mode = 'restored-from-supabase'; }
-      else { await pushAll(); status.mode = 'synced'; }
+      if (mode === 'remote') {
+        if (remoteUsers === 0) throw new Error('ปฏิเสธการกู้จาก Supabase เพราะตาราง users ยังว่าง');
+        await hydrate(); status.mode = 'restored-from-supabase';
+      } else if (mode === 'local') {
+        await pushAll(); status.mode = 'synced-from-local';
+      } else if (localUsers <= 1 && localOrders === 0 && remoteUsers > localUsers) {
+        // Backward-compatible safe auto mode for a brand-new Hostinger runtime.
+        await hydrate(); status.mode = 'restored-from-supabase';
+      } else {
+        await pushAll(); status.mode = 'synced';
+      }
       if (pluginRoot) await restorePluginFiles(pluginRoot);
+      await verify();
     } catch (error) {
       status.mode = 'error'; status.lastError = error.message;
       log.error?.(`[supabase-mirror] bootstrap failed, continuing with local data: ${error.message}`);
@@ -205,7 +262,7 @@ export function createMirror(db, { client = null, storage = null, delayMs = 2000
   }
 
   return {
-    db: wrapped, enabled, flush, bootstrap, hydrate, pushAll, restorePluginFiles,
+    db: wrapped, enabled, flush, bootstrap, hydrate, pushAll, verify, restorePluginFiles,
     status: () => ({ ...status, pending: [...dirty] }),
     stop: () => { if (timer) clearTimeout(timer); timer = null; },
   };

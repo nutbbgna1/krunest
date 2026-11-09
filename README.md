@@ -53,7 +53,10 @@
 ## Supabase เป็นที่เก็บข้อมูลหลัก
 
 - เขียนข้อมูลทุกครั้งลง Supabase อัตโนมัติ (`server/supabase-mirror.mjs`) ยกเว้น sessions / tokens / login_attempts
-- เปิดเซิร์ฟเวอร์: ถ้าฐานข้อมูลในเครื่องว่าง (มีแค่แอดมินที่ seed) จะกู้ข้อมูลและไฟล์ปลั๊กอินจาก Supabase ไม่เช่นนั้นจะส่งข้อมูลในเครื่องขึ้นไป
+- ระหว่างย้ายระบบใช้ `KRUNEST_SUPABASE_BOOTSTRAP=auto` ก่อน: ถ้าฐานข้อมูลในเครื่องว่างจะกู้จาก Supabase ไม่เช่นนั้นจะส่งข้อมูลในเครื่องขึ้นไป
+- หลังตรวจว่าข้อมูลบน Supabase ครบแล้ว ให้ตั้ง `KRUNEST_SUPABASE_BOOTSTRAP=remote` เพื่อให้ Supabase ชนะทุกครั้งที่รีสตาร์ต ป้องกัน SQLite เก่าเขียนทับฐานข้อมูลกลาง
+- `KRUNEST_SUPABASE_BOOTSTRAP=local` ใช้เฉพาะการกู้ระบบแบบตั้งใจให้ SQLite เขียนขึ้น Supabase ห้ามเปิดค้างไว้ใน production
+- การกู้จาก Supabase ดาวน์โหลด snapshot ให้ครบก่อน แล้วแทนที่ตาราง local ภายใน transaction พร้อมตรวจจำนวน users/programs/plugins/orders/settings หลังจบ
 - ถ้า Supabase ใช้ไม่ได้ ระบบยังทำงานต่อด้วยข้อมูลในเครื่องและลองส่งใหม่ (ดูสถานะที่ผู้ดูแล > สถานะระบบ)
 - ต้องใช้ **Secret key** (`SUPABASE_SECRET_KEY` หรือ `SUPABASE_API_KEY`) และรัน migration ใน `supabase/migrations/` ก่อน
 - ปิดการสำรองอัตโนมัติ: `KRUNEST_SUPABASE_MIRROR=off`
