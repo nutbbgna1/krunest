@@ -1,22 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildPluginCover, extractCoverScreenshot } from '../plugin-cover.mjs';
+import { describePluginVisual, mappedVisualSlugs } from '../plugin-visuals.mjs';
 
 const source = '<svg><image href="data:image/png;base64,aGVsbG8=" x="0" y="0"/></svg>';
 
 test('cover generator keeps the screenshot and safely renders plugin metadata', () => {
   const manifest = {
-    name: 'ระบบ <ครู>', category: 'games-activities', access: 'max',
+    slug: 'vs-random-picker', name: 'ระบบ <ครู>', category: 'games-activities', access: 'max',
     program: { thaiName: 'ระบบ <ครู>' },
     highlights: ['เปิดใช้งานผ่านเว็บได้ทันที', 'ข้อมูลแยกตามบัญชีผู้ใช้', 'มีคู่มือ PDF'],
   };
   assert.equal(extractCoverScreenshot(source), 'data:image/png;base64,aGVsbG8=');
   const cover = buildPluginCover(manifest, source, 'เกมและกิจกรรม');
-  assert.match(cover, /data:image\/png;base64,aGVsbG8=/);
+  assert.match(cover, /data-visual-kind="game"/);
   assert.match(cover, /ระบบ &lt;ครู&gt;/);
   assert.match(cover, /ULTIMATE/);
   assert.match(cover, /#db2777/);
   assert.doesNotMatch(cover, /ระบบ <ครู>/);
+});
+
+test('Chinese worksheet gets a subject-specific worksheet illustration', () => {
+  const manifest = { slug: 'vs-chinese-worksheet', name: 'โปรแกรมสร้างใบงานภาษาจีน', category: 'academic-curriculum' };
+  const cover = buildPluginCover(manifest, source, 'วิชาการและหลักสูตร');
+  assert.match(cover, /data-visual-kind="worksheet"/);
+  assert.match(cover, /中文 • 你好 • nǐ hǎo/);
+});
+
+test('semantic visual catalog covers all 130 plugins without duplicates', () => {
+  assert.equal(mappedVisualSlugs.length, 130);
+  assert.equal(new Set(mappedVisualSlugs).size, 130);
+  assert.equal(describePluginVisual({ slug: 'missing' }).mapped, false);
 });
 
 test('cover generator returns null when the source has no embedded screenshot', () => {

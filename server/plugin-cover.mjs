@@ -1,3 +1,5 @@
+import { renderPluginVisual } from './plugin-visuals.mjs';
+
 const PALETTES = {
   'games-activities': { from: '#4c1d95', to: '#db2777', accent: '#fbbf24', soft: '#fce7f3' },
   'เกมและกิจกรรม': { from: '#4c1d95', to: '#db2777', accent: '#fbbf24', soft: '#fce7f3' },
@@ -45,6 +47,8 @@ export function buildPluginCover(manifest, sourceSvg, categoryLabel = '') {
   const highlights = Array.isArray(manifest.highlights) ? manifest.highlights.slice(0, 3) : [];
   while (highlights.length < 3) highlights.push(['เปิดใช้งานผ่านเว็บได้ทันที', 'ข้อมูลแยกตามบัญชีผู้ใช้', 'มีคู่มือการใช้งาน PDF'][highlights.length]);
   const features = highlights.map(featureText);
+  const pluginVisual = renderPluginVisual(manifest, palette.accent);
+  if (!pluginVisual) return null;
 
   const cards = features.map(([heading, detail], index) => {
     const y = 414 + index * 128;
@@ -63,6 +67,7 @@ export function buildPluginCover(manifest, sourceSvg, categoryLabel = '') {
     <radialGradient id="glow"><stop stop-color="${palette.accent}" stop-opacity=".42"/><stop offset="1" stop-color="${palette.accent}" stop-opacity="0"/></radialGradient>
     <pattern id="dots" width="34" height="34" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="2" fill="#fff" opacity=".12"/></pattern>
     <clipPath id="screen"><rect x="72" y="318" width="1080" height="494" rx="25"/></clipPath>
+    <clipPath id="art"><rect width="960" height="540" rx="25"/></clipPath>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#020617" flood-opacity=".48"/></filter>
   </defs>
   <rect width="1600" height="900" fill="url(#bg)"/>
@@ -89,7 +94,8 @@ export function buildPluginCover(manifest, sourceSvg, categoryLabel = '') {
     <circle cx="100" cy="316" r="7" fill="#fb7185"/><circle cx="124" cy="316" r="7" fill="#fbbf24"/><circle cx="148" cy="316" r="7" fill="#34d399"/>
     <rect x="180" y="307" width="230" height="18" rx="9" fill="#fff" opacity=".12"/>
     <g transform="translate(985 303)"><rect width="148" height="27" rx="13.5" fill="${palette.accent}"/><circle cx="18" cy="13.5" r="5" fill="#fff"/><text x="86" y="19" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" font-weight="900" fill="#172033">LIVE PREVIEW</text></g>
-    <image href="${screenshot}" x="72" y="318" width="1080" height="494" preserveAspectRatio="xMidYMin slice" clip-path="url(#screen)"/>
+    <rect x="72" y="318" width="1080" height="494" rx="25" fill="#f8fafc"/>
+    <g transform="translate(72 318) scale(1.125 .915)" clip-path="url(#art)">${pluginVisual}</g>
     <rect x="72" y="318" width="1080" height="494" rx="25" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="2"/>
   </g>
 
