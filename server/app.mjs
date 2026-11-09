@@ -11,6 +11,7 @@ import { syncDatabaseToSupabase } from './supabase-sync.mjs';
 import { createMirror } from './supabase-mirror.mjs';
 import { createStorage, safeObjectName } from './storage.mjs';
 import { storageBridge } from './plugin-storage-bridge.mjs';
+import { buildPluginCover } from './plugin-cover.mjs';
 
 const DAY = 86_400_000;
 const token = () => crypto.randomBytes(24).toString('hex');
@@ -463,7 +464,8 @@ export function createApp(options = {}) {
       slug: manifest.slug, name: manifest.name, version: manifest.version,
       type: manifest.type || 'extension', description: manifest.description || '',
       category: getCategories().find((c) => c.id === manifest.category)?.label || manifest.category || 'HTML Standalone', categoryId: manifest.category || '', badge: manifest.badge || 'พร้อมใช้งานบนเว็บ',
-      screenshots: Array.isArray(manifest.screenshots) ? manifest.screenshots.map((path) => `/plugins/${manifest.slug}/demo/${path}`) : [],
+      screenshots: Array.isArray(manifest.screenshots) ? manifest.screenshots.map((path, index) => index === 0 && basename(path) === 'cover-v2.svg'
+        ? `/api/plugins/${manifest.slug}/cover.svg?v=${encodeURIComponent(plugin.version)}` : `/plugins/${manifest.slug}/demo/${path}`) : [],
       highlights: Array.isArray(manifest.highlights) ? manifest.highlights : [],
       steps: Array.isArray(manifest.steps) ? manifest.steps : [], program: manifest.program ? { ...manifest.program, price: minPrice(manifest) } : null,
       priceTiers: accessOf(manifest) === 'paid' ? tiersOf(manifest) : [], tech: techOf(manifest), access: accessOf(manifest),
@@ -512,6 +514,19 @@ export function createApp(options = {}) {
   };
 
   app.get('/api/plugins', (_req,res) => res.json(db.prepare("SELECT slug FROM plugins WHERE status='active' ORDER BY installed_at DESC").all().map(({slug})=>readPlugin(slug)).filter(Boolean).map(publicPlugin)));
+  app.get('/api/plugins/:slug/cover.svg', (req, res) => {
+    const plugin = readPlugin(req.params.slug);
+    const screenshot = plugin?.manifest?.screenshots?.[0];
+    if (!plugin || plugin.manifest.type !== 'html-standalone' || !safePluginPath(plugin.manifest.entry) || !safePluginPath(screenshot)) return res.status(404).send('ไม่พบรูปปก');
+    const source = resolve(pluginRoot, plugin.slug, dirname(plugin.manifest.entry), screenshot);
+    if (!source.startsWith(`${resolve(pluginRoot, plugin.slug)}/`) || !existsSync(source)) return res.status(404).send('ไม่พบรูปปก');
+    const category = getCategories().find((item) => item.id === plugin.manifest.category)?.label || plugin.manifest.category || 'HTML Standalone';
+    const cover = buildPluginCover(plugin.manifest, readFileSync(source, 'utf8'), category);
+    if (!cover) return res.sendFile(source);
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(cover);
+  });
   app.get('/api/plugins/:slug', (req,res) => { const plugin=readPlugin(req.params.slug); return plugin ? res.json(publicPlugin(plugin)) : res.status(404).json({error:'ไม่พบโปรแกรม'}); });
   const recordKey = (value) => typeof value === 'string' && value.length > 0 && value.length <= 100 && !/[\x00-\x1f/]/.test(value);
   app.get('/api/plugins/:slug/records', auth, pluginAccess, (req,res) => {
