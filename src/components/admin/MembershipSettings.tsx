@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 
 type Plan = { id: string; name: string; monthly_price: number; yearly_price: number; active: number | boolean; badge: string; subtitle: string };
-type Promo = { code: string; label: string; discountPercent: number; active: boolean };
+type Promo = { code: string; label: string; discountPercent: number; scope: 'plan' | 'program' | 'all'; active: boolean };
 type Settings = { plans: Plan[]; promoCodes: Promo[] };
 
 export function MembershipSettings() {
@@ -41,14 +41,15 @@ export function MembershipSettings() {
         </div>
       </section>)}</div>
     </div>
-    <div className="portal-card p-5"><div className="flex items-center justify-between gap-3"><div><h2 className="text-xl font-extrabold">รหัสส่วนลดสมาชิก</h2><p className="mt-1 text-sm text-slate-500">ใช้ได้กับการสมัครแพ็กเกจสมาชิก ส่วนลดจะหักจากยอดคำสั่งซื้อจริง</p></div><button type="button" className="secondary-button" onClick={() => setData({ ...data, promoCodes: [...data.promoCodes, { code: '', label: '', discountPercent: 10, active: true }] })}>เพิ่มรหัส</button></div>
-      <div className="mt-4 space-y-3">{data.promoCodes.map((promo, index) => <div key={index} className="grid gap-3 rounded-xl border border-slate-200 p-3 sm:grid-cols-[1fr_1.5fr_110px_auto_auto] sm:items-end">
+    <div className="portal-card p-5"><div className="flex items-center justify-between gap-3"><div><h2 className="text-xl font-extrabold">รหัสคูปองส่วนลด</h2><p className="mt-1 text-sm text-slate-500">เลือกได้ว่าใช้กับแพ็กเกจสมาชิก โปรแกรมรายตัว หรือทุกรายการ ส่วนลดจะถูกตรวจและหักจากยอดจริงที่เซิร์ฟเวอร์</p></div><button type="button" className="secondary-button" onClick={() => setData({ ...data, promoCodes: [...data.promoCodes, { code: '', label: '', discountPercent: 10, scope: 'program', active: true }] })}>เพิ่มรหัส</button></div>
+      <div className="mt-4 space-y-3">{data.promoCodes.map((promo, index) => <div key={index} className="grid gap-3 rounded-xl border border-slate-200 p-3 sm:grid-cols-[1fr_1.4fr_100px_150px_auto_auto] sm:items-end">
         <label className="text-sm font-bold">รหัส<input className="form-field mt-1 uppercase" value={promo.code} maxLength={24} onChange={(e) => setPromo(index, { code: e.target.value.toUpperCase() })}/></label>
         <label className="text-sm font-bold">ชื่อโปรโมชัน<input className="form-field mt-1" value={promo.label} maxLength={80} onChange={(e) => setPromo(index, { label: e.target.value })}/></label>
         <label className="text-sm font-bold">ส่วนลด %<input className="form-field mt-1" type="number" min="1" max="100" value={promo.discountPercent} onChange={(e) => setPromo(index, { discountPercent: Number(e.target.value) })}/></label>
+        <label className="text-sm font-bold">ใช้กับ<select className="form-field mt-1" value={promo.scope || 'plan'} onChange={(e) => setPromo(index, { scope: e.target.value as Promo['scope'] })}><option value="program">โปรแกรมรายตัว</option><option value="plan">แพ็กเกจสมาชิก</option><option value="all">ทุกรายการ</option></select></label>
         <label className="flex items-center gap-2 pb-3 text-sm"><input type="checkbox" checked={promo.active} onChange={(e) => setPromo(index, { active: e.target.checked })}/>เปิดใช้</label>
         <button type="button" className="secondary-button" onClick={() => setData({ ...data, promoCodes: data.promoCodes.filter((_, i) => i !== index) })}>ลบ</button>
-      </div>)}{!data.promoCodes.length && <p className="text-sm text-slate-500">ยังไม่มีรหัสส่วนลดสมาชิก</p>}</div>
+      </div>)}{!data.promoCodes.length && <p className="text-sm text-slate-500">ยังไม่มีรหัสคูปองส่วนลด</p>}</div>
     </div>
     {error && <p className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}{message && <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{message}</p>}
     <button type="button" disabled={busy} onClick={save} className="primary-button">{busy ? 'กำลังบันทึก...' : 'บันทึกราคาและโปรโมชัน'}</button>

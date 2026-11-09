@@ -73,7 +73,10 @@ export function createApp(options = {}) {
     catch { return fallback; }
   };
   const planMeta = () => settingJson('member_plan_meta', {});
-  const promoCodes = () => settingJson('member_promo_codes', []);
+  const promoCodes = () => settingJson('member_promo_codes', []).map((row) => ({
+    ...row,
+    scope: ['plan','program','all'].includes(row?.scope) ? row.scope : 'plan',
+  }));
   const MEMBER_ACCESS_RANK = { free: 0, go: 1, pro: 2, max: 3 };
   const manifestMemberAccess = (manifest) => {
     if (Object.hasOwn(MEMBER_ACCESS_RANK, manifest?.access)) return manifest.access;
@@ -134,8 +137,9 @@ export function createApp(options = {}) {
     const seenCodes = new Set(), cleanCodes = [];
     for (const row of codes) {
       const code = String(row.code || '').trim().toUpperCase(), label = String(row.label || '').trim();
+      const scope = ['plan','program','all'].includes(row.scope) ? row.scope : 'plan';
       if (!/^[A-Z0-9_-]{3,24}$/.test(code) || seenCodes.has(code) || !label || label.length > 80 || !Number.isSafeInteger(row.discountPercent) || row.discountPercent < 1 || row.discountPercent > 100 || typeof row.active !== 'boolean') return res.status(400).json({ error: 'รหัสหรือส่วนลดโปรโมชันไม่ถูกต้อง' });
-      seenCodes.add(code); cleanCodes.push({ code, label, discountPercent: row.discountPercent, active: row.active });
+      seenCodes.add(code); cleanCodes.push({ code, label, discountPercent: row.discountPercent, scope, active: row.active });
     }
     db.exec('BEGIN');
     try {
@@ -267,15 +271,15 @@ export function createApp(options = {}) {
       const cycle=req.body.billingCycle==='yearly'?'yearly':'monthly';
       amount=cycle==='yearly'?p.yearly_price:p.monthly_price;
       targetId=`${id}#${cycle}`;
-      const code=String(req.body.promoCode||'').trim().toUpperCase();
-      if(code){
-        const promo=promoCodes().find((row)=>row.code===code&&row.active);
-        if(!promo)return res.status(400).json({error:'รหัสโปรโมชันไม่ถูกต้องหรือปิดใช้งานแล้ว'});
-        amount=Math.max(0,amount-Math.round(amount*promo.discountPercent/100));
-        req.memberPromo={code,label:promo.label,discountPercent:promo.discountPercent};
-      }
     }
     else return res.status(400).json({error:'ประเภทรายการไม่ถูกต้อง'});
+    const code=String(req.body.promoCode||'').trim().toUpperCase();
+    if(code){
+      const promo=promoCodes().find((row)=>row.code===code&&row.active&&(row.scope==='all'||row.scope===type));
+      if(!promo)return res.status(400).json({error:'รหัสส่วนลดไม่ถูกต้อง ปิดใช้งานแล้ว หรือใช้กับรายการนี้ไม่ได้'});
+      amount=Math.max(0,amount-Math.round(amount*promo.discountPercent/100));
+      req.memberPromo={code,label:promo.label,discountPercent:promo.discountPercent,scope:promo.scope};
+    }
     const reference=`KN${new Date().toISOString().slice(2,10).replaceAll('-','')}${crypto.randomInt(10000,99999)}`;
     const result=db.prepare('INSERT INTO orders (reference,user_id,target_type,target_id,amount,expires_at) VALUES (?,?,?,?,?,?)').run(reference,req.user.id,type,targetId,amount,isoAfter(48*60*60_000)); audit(req.user.id,'create_order','order',result.lastInsertRowid,req.memberPromo || {});
     const order=db.prepare('SELECT * FROM orders WHERE id=?').get(result.lastInsertRowid);

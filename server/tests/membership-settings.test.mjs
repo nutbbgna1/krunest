@@ -49,7 +49,10 @@ test('admin membership settings control storefront, discounted orders and yearly
     assert.equal((await member('/api/admin/membership')).status, 403);
     const initial = (await admin('/api/admin/membership')).data;
     const plans = initial.plans.map((plan) => plan.id === 'go' ? { ...plan, active: Boolean(plan.active), name: 'สมาชิกห้องเรียน', monthly_price: 320, yearly_price: 3200, badge: 'เปิดเทอมใหม่', subtitle: 'สำหรับกิจกรรมหน้าชั้นเรียน' } : { ...plan, active: Boolean(plan.active) });
-    assert.equal((await admin('/api/admin/membership', 'PUT', { plans, promoCodes: [{ code: 'SCHOOL25', label: 'ส่วนลดครู 25%', discountPercent: 25, active: true }] })).status, 200);
+    assert.equal((await admin('/api/admin/membership', 'PUT', { plans, promoCodes: [
+      { code: 'SCHOOL25', label: 'ส่วนลดครู 25%', discountPercent: 25, scope: 'plan', active: true },
+      { code: 'APP20', label: 'ส่วนลดโปรแกรม 20%', discountPercent: 20, scope: 'program', active: true },
+    ] })).status, 200);
     const visible = (await member('/api/membership')).data.plans.find((plan) => plan.id === 'go');
     assert.equal(visible.name, 'สมาชิกห้องเรียน');
     assert.equal(visible.monthly_price, 320);
@@ -60,6 +63,11 @@ test('admin membership settings control storefront, discounted orders and yearly
     assert.equal((await admin('/api/admin/membership', 'PUT', { plans: plans.map((plan) => ({ ...plan, monthly_price: -1 })), promoCodes: [] })).status, 400);
     db.prepare("INSERT INTO settings (key,value) VALUES ('payment_accounts',?)").run(JSON.stringify([{ id: 'bank', type: 'bank', label: 'ธนาคาร', active: true, bankName: 'ธนาคาร', accountName: 'ทดสอบ', accountNumber: '1234567890' }]));
     assert.equal((await member('/api/orders', 'POST', { targetType: 'program', targetId: 'go-app' })).status, 400, 'membership-only apps cannot be bought separately');
+    assert.equal((await member('/api/orders', 'POST', { targetType: 'program', targetId: 'paid-app', promoCode: 'SCHOOL25' })).status, 400, 'plan coupons cannot discount programs');
+    const programOrder = await member('/api/orders', 'POST', { targetType: 'program', targetId: 'paid-app', promoCode: 'APP20' });
+    assert.equal(programOrder.status, 201);
+    assert.equal(programOrder.data.amount, 240);
+    assert.equal(programOrder.data.promo.scope, 'program');
     assert.deepEqual((await member('/api/plugins')).data.find((plugin) => plugin.slug === 'go-app').priceTiers, []);
     assert.equal((await member('/api/orders', 'POST', { targetType: 'plan', targetId: 'go', billingCycle: 'monthly', promoCode: 'BADCODE' })).status, 400);
     const order = await member('/api/orders', 'POST', { targetType: 'plan', targetId: 'go', billingCycle: 'yearly', promoCode: 'SCHOOL25' });
