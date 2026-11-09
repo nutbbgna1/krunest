@@ -55,6 +55,7 @@
 - เขียนข้อมูลทุกครั้งลง Supabase อัตโนมัติ (`server/supabase-mirror.mjs`) ยกเว้น sessions / tokens / login_attempts
 - ระหว่างย้ายระบบใช้ `KRUNEST_SUPABASE_BOOTSTRAP=auto` ก่อน: ถ้าฐานข้อมูลในเครื่องว่างจะกู้จาก Supabase ไม่เช่นนั้นจะส่งข้อมูลในเครื่องขึ้นไป
 - หลังตรวจว่าข้อมูลบน Supabase ครบแล้ว ให้ตั้ง `KRUNEST_SUPABASE_BOOTSTRAP=remote` เพื่อให้ Supabase ชนะทุกครั้งที่รีสตาร์ต ป้องกัน SQLite เก่าเขียนทับฐานข้อมูลกลาง
+- ใน production ค่าเริ่มต้นคือ `remote` แม้ไม่ได้กำหนดตัวแปรนี้; ใช้ `auto` เฉพาะช่วงย้ายระบบหรือแก้เหตุฉุกเฉิน
 - `KRUNEST_SUPABASE_BOOTSTRAP=local` ใช้เฉพาะการกู้ระบบแบบตั้งใจให้ SQLite เขียนขึ้น Supabase ห้ามเปิดค้างไว้ใน production
 - การกู้จาก Supabase ดาวน์โหลด snapshot ให้ครบก่อน แล้วแทนที่ตาราง local ภายใน transaction พร้อมตรวจจำนวน users/programs/plugins/orders/settings หลังจบ
 - ถ้า Supabase ใช้ไม่ได้ ระบบยังทำงานต่อด้วยข้อมูลในเครื่องและลองส่งใหม่ (ดูสถานะที่ผู้ดูแล > สถานะระบบ)

@@ -38,7 +38,8 @@ export function createMirror(db, { client = null, storage = null, delayMs = 2000
   const sb = () => client || getSupabaseAdmin();
   const known = new Map(MIRROR_TABLES.map(([t]) => [t, new Map()])); // table -> pk -> row hash
   const dirty = new Set();
-  const configuredBootstrapMode = String(process.env.KRUNEST_SUPABASE_BOOTSTRAP || 'auto').toLowerCase();
+  const defaultBootstrapMode = process.env.NODE_ENV === 'production' ? 'remote' : 'auto';
+  const configuredBootstrapMode = String(process.env.KRUNEST_SUPABASE_BOOTSTRAP || defaultBootstrapMode).toLowerCase();
   const bootstrapMode = BOOTSTRAP_MODES.has(configuredBootstrapMode) ? configuredBootstrapMode : 'auto';
   const status = {
     enabled,

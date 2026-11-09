@@ -104,7 +104,14 @@ export function createApp(options = {}) {
   };
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, database: true, time: new Date().toISOString() });
+    const state = mirror.status();
+    res.json({
+      ok: true,
+      database: true,
+      source: state.mode,
+      verified: state.verification?.ok ?? null,
+      time: new Date().toISOString(),
+    });
   });
   app.get('/api/catalog', (_req, res) => res.json({
     programs: db.prepare('SELECT * FROM programs WHERE active=1 ORDER BY price').all(),
